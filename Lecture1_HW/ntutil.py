@@ -4,6 +4,11 @@ import ntcore
 import wpilib
 import wpiutil.log
 
+# =============================================================================
+# This file contains utilities for sending values to NetworkTables for display
+# in AdvantageScope and other tools. You should NOT edit this for the homework.
+# =============================================================================
+
 nt = ntcore.NetworkTableInstance.getDefault()
 
 T = TypeVar("T")
