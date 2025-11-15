@@ -4,3 +4,4 @@ simgui*.json
 networktables.json
 .vscode
 .venv
+logs/
