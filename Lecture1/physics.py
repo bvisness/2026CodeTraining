@@ -28,8 +28,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
     )
 
     # NetworkTables topics
-    simFolder = ntutil.folder("Sim")
-    self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
+    self.poseTopic = ntutil.getStructTopic("Pose", Pose2d)
 
   def update_sim(self, now: float, tm_diff: float):
     vBus = RobotController.getBatteryVoltage()
