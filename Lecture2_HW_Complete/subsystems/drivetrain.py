@@ -12,7 +12,8 @@ class Drivetrain:
     self.backLeftSwerveModule = SwerveModule(26, 24, math.pi)
     self.backRightSwerveModule = SwerveModule(27, 23, math.pi/2)
 
-    self.swerveStatesTopic = ntutil.getStructArrayTopic("SwerveStates", SwerveModuleState)
+    self.nt = ntutil.folder("Drivetrain")
+    self.swerveStatesTopic = self.nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
   
   def periodic(self):
     self.swerveStatesTopic.set([
