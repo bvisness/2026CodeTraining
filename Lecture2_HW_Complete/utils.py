@@ -13,3 +13,15 @@ def clamp(value: float, min: float, max: float) -> float:
 def remap(value: float, range1: tuple[float, float], range2: tuple[float, float]) -> float:
     t = (value - range1[0]) / (range1[1] - range1[0])
     return lerp(range2[0], range2[1], t)
+
+def sign(v: float) -> float:
+    if v < 0:
+        return -1
+    else:
+        return 1
+
+def sign_or_zero(v: float) -> float:
+    if v == 0:
+        return 0
+    else:
+        return sign(v)

@@ -8,6 +8,7 @@ import wpimath.units
 
 import ntutil
 from robot import MyRobot
+import utils
 
 
 # =============================================================================
@@ -33,7 +34,6 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
             robot.arm.intakeMotor,
             DCMotor.NEO550(1).withReduction(6),
             momentOfInertia=compliantWheelMOI * 6, # six wheels on the intake
-            drag=0,
             nt=nt.folder("IntakeMotor")
         )
 
@@ -56,14 +56,18 @@ class RotatingMotorObject:
                  spark: rev.SparkMax,
                  simMotor: DCMotor,
                  *,
-                 momentOfInertia: float,
-                 drag: float,
+                 momentOfInertia: wpimath.units.kilogram_square_meters,
+                 viscousDragCoefficient: wpimath.units.newton_meters = 0.001,
+                 friction: wpimath.units.newton_meters = 0.01,
                  nt: ntutil._NTFolder = ntutil._NTDummyFolder()):
-        self.spark = rev.SparkMaxSim(spark, simMotor)
+        self.realSpark = spark
+        self.simSpark = rev.SparkMaxSim(spark, simMotor)
         self.simMotor = simMotor
-        self.relativeEncoder = self.spark.getRelativeEncoderSim()
-        self.absoluteEncoder = self.spark.getAbsoluteEncoderSim()
+        self.relativeEncoder = self.simSpark.getRelativeEncoderSim()
+        self.absoluteEncoder = self.simSpark.getAbsoluteEncoderSim()
         self.moi = momentOfInertia
+        self.viscousDrag = viscousDragCoefficient
+        self.friction = friction
 
         self.outputDutyCycleTopic = nt.getFloatTopic("OutputDutyCycle")
         self.outputCurrentTopic = nt.getFloatTopic("OutputCurrent")
@@ -74,27 +78,39 @@ class RotatingMotorObject:
 
     def iterate(self, vbus: float, dt: float):
         # Compute output torque
-        outputDutyCycle = self.spark.getAppliedOutput()
-        motorVelocityRadPerS = self.relativeEncoder.getVelocity() / self.relativeEncoder.getVelocityConversionFactor() * (2 * math.pi / 60)
-        outputCurrent = self.simMotor.current(motorVelocityRadPerS, outputDutyCycle * vbus)
-        outputTorque = self.simMotor.torque(outputCurrent)
+        outputDutyCycle = self.simSpark.getAppliedOutput()
+        isCoast = self.realSpark.configAccessor.getIdleMode() == rev.SparkBaseConfig.IdleMode.kCoast
+        if outputDutyCycle == 0 and isCoast:
+            outputTorque = 0
+        else:
+            motorVelocityRadPerS = self.relativeEncoder.getVelocity() / self.relativeEncoder.getVelocityConversionFactor() * (2 * math.pi / 60)
+            outputCurrent = self.simMotor.current(motorVelocityRadPerS, outputDutyCycle * vbus)
+            outputTorque = self.simMotor.torque(outputCurrent)
 
         self.outputDutyCycleTopic.set(outputDutyCycle)
-        self.outputCurrentTopic.set(outputCurrent)
         self.outputTorqueTopic.set(outputTorque)
 
+        # Compute total torque (output plus drag / friction)
+        viscousDragTorque = self.viscousDrag * -self.velocity
+        frictionTorque = utils.sign_or_zero(-self.velocity) * self.friction # already Nm
+        totalTorque = outputTorque + viscousDragTorque + frictionTorque
+
         # Torque -> accleration -> updated velocity
-        angularAcceleration = outputTorque / self.moi # rad/(s^2)
+        angularAcceleration = totalTorque / self.moi # rad/(s^2)
         self.velocity += angularAcceleration * dt
 
         # Report velocity to SPARK sim in converted units
         vInConfiguredUnits = self.velocity / (2 * math.pi / 60) * self.relativeEncoder.getVelocityConversionFactor()
-        self.spark.iterate(vInConfiguredUnits, vbus, dt)
+        self.simSpark.iterate(vInConfiguredUnits, vbus, dt)
 
 
-def momentOfInertiaForWheel(outerDiameter: float, innerDiameter: float, mass: float) -> float:
+def momentOfInertiaForWheel(
+        outerDiameter: wpimath.units.meters,
+        innerDiameter: wpimath.units.meters,
+        mass: wpimath.units.kilograms,
+        ) -> wpimath.units.kilogram_square_meters:
     """
-    Computed the moment of inertia for a wheel. Units: diameters are meters, mass is kilograms.
+    Computes the moment of inertia for a wheel.
     """
     r1 = innerDiameter / 2
     r2 = outerDiameter / 2
