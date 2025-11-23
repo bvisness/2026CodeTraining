@@ -59,6 +59,9 @@ class _NTFolder:
 
     # Plain NetworkTables topics
 
+    def topicName(self, name: str):
+        return self.prefix + "/" + name
+
     def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
         return _NTTopic(nt.getBooleanArrayTopic(self.prefix + "/" + name), defaultValue)
 
@@ -92,12 +95,12 @@ class _NTFolder:
         return _NTTopic(nt.getStructTopic(self.prefix + "/" + name, type), defaultValue)
 
 
-class _NTDummyFolder(_NTFolder):
-    def __init__(self):
-        pass
+class _DummyNTFolder(_NTFolder):
+    def __init__(self, prefix: str = "DUMMY"):
+        self.prefix = prefix
 
     def folder(self, name: str):
-        return self
+        return _DummyNTFolder(self.prefix + "/" + name)
 
     def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
         return _DummyNTTopic(defaultValue)

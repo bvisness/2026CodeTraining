@@ -20,6 +20,8 @@ class MyRobot(wpilib.TimedRobot):
     def teleopPeriodic(self):
         armAngle = utils.remap(self.gamepad.getRawAxis(1), (-1, 1), (math.pi, -math.pi))
         self.arm.setDesiredAngle(armAngle)
+        tempArmSpeed = utils.remap(self.gamepad.getRawAxis(1), (-1, 1), (0.2, -0.2))
+        self.arm.armMotor.set(tempArmSpeed)
 
         intakeSpeed = 0
         if self.gamepad.getRawButton(1):
