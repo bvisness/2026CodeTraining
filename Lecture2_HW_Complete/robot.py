@@ -1,19 +1,20 @@
-import math
 import wpilib
-from wpimath.system.plant import DCMotor
 
 import constants
-import ntutil
 from subsystems.arm import Arm
 import utils
 
+
+# =============================================================================
+# As usual, this file contains the main robot class. This is where you read
+# from joysticks and send commands to the robot's subsystems. This project
+# contains one subsystem, called Arm.
+# =============================================================================
 
 class MyRobot(wpilib.TimedRobot):
     def robotInit(self):
         self.arm = Arm()
         self.gamepad = wpilib.Joystick(0)
-
-        ntutil.log(f"neo stall torque: {DCMotor.NEO(1).stallTorque}")
 
     def robotPeriodic(self):
         self.arm.periodic()
@@ -22,7 +23,7 @@ class MyRobot(wpilib.TimedRobot):
         armAngle = utils.remap(
             self.gamepad.getRawAxis(1),
             (0, -1), # Remember, -1 is up on the left stick.
-            (constants.kArmMinAngle, constants.kArmMaxAngle),
+            (constants.armMinAngle, constants.armMaxAngle),
         )
         self.arm.setDesiredArmAngle(armAngle)
 
@@ -30,4 +31,4 @@ class MyRobot(wpilib.TimedRobot):
             intakeSpeed = 0.5
         else:
             intakeSpeed = 0
-        self.arm.intakeMotor.set(intakeSpeed)
+        self.arm.setIntakeSpeed(intakeSpeed)

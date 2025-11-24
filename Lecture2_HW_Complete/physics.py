@@ -2,7 +2,7 @@ import math
 import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
 import rev
-from wpilib import DriverStation, RobotController
+from wpilib import RobotController
 from wpimath.system.plant import DCMotor
 import wpimath.units
 
@@ -86,8 +86,7 @@ class RotatingMotorObject:
         self.outputCurrentTopic = nt.getFloatTopic("OutputCurrent")
         self.outputTorqueTopic = nt.getFloatTopic("OutputTorque")
 
-        self.velocity = 0
-        """rad/s"""
+        self.velocity = 0 # rad/s
 
     def iterate(self, vbus: float, dt: float):
         # Compute output torque

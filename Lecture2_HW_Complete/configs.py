@@ -2,6 +2,11 @@ import math
 import rev
 
 
+# =============================================================================
+# This file contains configuration objects that are used for SPARK MAX
+# controllers.
+# =============================================================================
+
 armMotorConfig = rev.SparkMaxConfig()
 armMotorConfig.encoder.positionConversionFactor(math.pi * 2) # rotations -> radians
 armMotorConfig.encoder.velocityConversionFactor(math.pi * 2 / 60) # RPM -> rad/s

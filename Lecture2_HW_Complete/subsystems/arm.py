@@ -9,20 +9,41 @@ import ntutil
 import utils
 
 
+# =============================================================================
+# This file contains the Arm subsystem, which demonstrates how to use PID to
+# drive a mechanism to a specified position. You can see a visualization of the
+# arm's state in AdvantageScope.
+# =============================================================================
+
 class Arm():
     def __init__(self):
+        # The motors managed by this subsystem, and related objects.
         self.armMotor = rev.SparkMax(10, rev.SparkLowLevel.MotorType.kBrushless)
         self.intakeMotor = rev.SparkMax(11, rev.SparkLowLevel.MotorType.kBrushless)
         
-        self.armController = self.armMotor.getClosedLoopController()
         self.armEncoder = self.armMotor.getEncoder()
         self.intakeEncoder = self.intakeMotor.getEncoder()
 
-        self.armMotor.configure(configs.armMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
-        self.intakeMotor.configure(configs.intakeMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
+        self.armController = self.armMotor.getClosedLoopController()
 
+        # Configure the motors using config objects from configs.py.
+        self.armMotor.configure(
+            configs.armMotorConfig,
+            rev.SparkMax.ResetMode.kResetSafeParameters,
+            rev.SparkMax.PersistMode.kPersistParameters,
+        )
+        self.intakeMotor.configure(
+            configs.intakeMotorConfig,
+            rev.SparkMax.ResetMode.kResetSafeParameters,
+            rev.SparkMax.PersistMode.kPersistParameters,
+        )
+
+        # The target angle we would like our arm to hit. This will be passed to
+        # the setReference method of the SPARK MAX's closed-loop (PID)
+        # controller in the subsystem's periodic method.
         self.desiredArmAngle = 0
 
+        # Create NetworkTables topics for AdvantageScope.
         nt = ntutil.folder("Arm")
         self.angleDesiredTopic = nt.getFloatTopic("AngleDesired")
         self.angleActualTopic = nt.getFloatTopic("AngleActual")
@@ -36,8 +57,13 @@ class Arm():
                                           wheelColor=wpilib.Color.kGray)
 
     def periodic(self):
+        """
+        Runs subsystem logic on every tick. Should be called from robotPeriodic.
+        """
+        # Set the target value for the arm's PID controller.
         self.armController.setReference(self.desiredArmAngle, rev.SparkMax.ControlType.kPosition)
 
+        # Report values to AdvantageScope.
         self.angleDesiredTopic.set(self.desiredArmAngle)
         self.angleActualTopic.set(self.armEncoder.getPosition())
         self.intakeDesiredSpeedTopic.set(self.intakeMotor.get())
@@ -48,13 +74,28 @@ class Arm():
                                 wheelAngle=0.4)
 
     def setDesiredArmAngle(self, angle: wpimath.units.radians):
-        safeAngle = utils.clamp(angle, constants.kArmMinAngle, constants.kArmMaxAngle)
+        """
+        Sets the desired angle for the arm, ensuring that it is within safe
+        limits.
+        """
+        safeAngle = utils.clamp(angle, constants.armMinAngle, constants.armMaxAngle)
         self.desiredArmAngle = safeAngle
+
+    def setIntakeSpeed(self, speed: float):
+        """
+        Sets the intake wheels to an arbitrary speed.
+        """
+        self.intakeMotor.set(speed)
+
+    # =========================================================================
+    # The code below this point is used for visualization and should not be
+    # modified as part of the homework.
 
     class Mechanism:
         """
-        A utility class that creates a Mechanism2d for display in AdvantageScope.
-        This makes it easy to display both the desired and actual mechanisms.
+        A utility class that creates a Mechanism2d for display in
+        AdvantageScope. This makes it easy to display both the desired and
+        actual mechanism states.
         """
         def __init__(self, ntName: str, armColor: wpilib.Color, wheelColor: wpilib.Color):
             canvasWidth = 1 # m
