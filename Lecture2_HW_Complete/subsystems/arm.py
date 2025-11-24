@@ -3,6 +3,7 @@ import wpilib
 from wpilib import SmartDashboard
 import wpimath.units
 
+import configs
 import constants
 import ntutil
 import utils
@@ -12,31 +13,43 @@ class Arm():
     def __init__(self):
         self.armMotor = rev.SparkMax(10, rev.SparkLowLevel.MotorType.kBrushless)
         self.intakeMotor = rev.SparkMax(11, rev.SparkLowLevel.MotorType.kBrushless)
-
+        
+        self.armController = self.armMotor.getClosedLoopController()
         self.armEncoder = self.armMotor.getEncoder()
         self.intakeEncoder = self.intakeMotor.getEncoder()
 
-        self.desiredAngle = 0
+        self.armMotor.configure(configs.armMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
+        self.intakeMotor.configure(configs.intakeMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
+
+        self.desiredArmAngle = 0
 
         nt = ntutil.folder("Arm")
-        self.desiredAngleTopic = nt.getFloatTopic("AngleDesired")
+        self.angleDesiredTopic = nt.getFloatTopic("AngleDesired")
+        self.angleActualTopic = nt.getFloatTopic("AngleActual")
         self.intakeDesiredSpeedTopic = nt.getFloatTopic("IntakeSpeedDesired")
         self.intakeActualSpeedTopic = nt.getFloatTopic("IntakeSpeedActual")
-
         self.mechActual = self.Mechanism(nt.topicName("MechanismActual"),
                                          armColor=wpilib.Color.kRed,
                                          wheelColor=wpilib.Color.kGreen)
+        self.mechDesired = self.Mechanism(nt.topicName("MechanismDesired"),
+                                          armColor=wpilib.Color.kGray,
+                                          wheelColor=wpilib.Color.kGray)
 
     def periodic(self):
-        self.desiredAngleTopic.set(self.desiredAngle)
+        self.armController.setReference(self.desiredArmAngle, rev.SparkMax.ControlType.kPosition)
+
+        self.angleDesiredTopic.set(self.desiredArmAngle)
+        self.angleActualTopic.set(self.armEncoder.getPosition())
         self.intakeDesiredSpeedTopic.set(self.intakeMotor.get())
         self.intakeActualSpeedTopic.set(self.intakeEncoder.getVelocity())
-        self.mechActual.update(armAngle=wpimath.units.rotationsToRadians(self.armEncoder.getPosition()),
-                               wheelAngle=wpimath.units.rotationsToRadians(self.intakeEncoder.getPosition()))
+        self.mechActual.update(armAngle=self.armEncoder.getPosition(),
+                               wheelAngle=self.intakeEncoder.getPosition())
+        self.mechDesired.update(armAngle=self.desiredArmAngle,
+                                wheelAngle=0.4)
 
-    def setDesiredAngle(self, angleRadians: float):
-        safeAngle = utils.clamp(angleRadians, constants.kArmMinAngle, constants.kArmMaxAngle)
-        self.desiredAngle = safeAngle
+    def setDesiredArmAngle(self, angle: wpimath.units.radians):
+        safeAngle = utils.clamp(angle, constants.kArmMinAngle, constants.kArmMaxAngle)
+        self.desiredArmAngle = safeAngle
 
     class Mechanism:
         """
@@ -84,4 +97,4 @@ class Arm():
 
         def update(self, armAngle: wpimath.units.radians, wheelAngle: wpimath.units.radians):
             self.arm.setAngle(wpimath.units.radiansToDegrees(armAngle))
-            self.intake.setAngle(wpimath.units.radiansToDegrees(wheelAngle))
+            self.intake.setAngle(wpimath.units.radiansToDegrees(-wheelAngle))

@@ -2,6 +2,7 @@ import math
 import wpilib
 from wpimath.system.plant import DCMotor
 
+import constants
 import ntutil
 from subsystems.arm import Arm
 import utils
@@ -18,14 +19,15 @@ class MyRobot(wpilib.TimedRobot):
         self.arm.periodic()
 
     def teleopPeriodic(self):
-        armAngle = utils.remap(self.gamepad.getRawAxis(1), (-1, 1), (math.pi, -math.pi))
-        self.arm.setDesiredAngle(armAngle)
-        tempArmSpeed = utils.remap(self.gamepad.getRawAxis(1), (-1, 1), (0.2, -0.2))
-        self.arm.armMotor.set(tempArmSpeed)
+        armAngle = utils.remap(
+            self.gamepad.getRawAxis(1),
+            (0, -1), # Remember, -1 is up on the left stick.
+            (constants.kArmMinAngle, constants.kArmMaxAngle),
+        )
+        self.arm.setDesiredArmAngle(armAngle)
 
-        intakeSpeed = 0
         if self.gamepad.getRawButton(1):
             intakeSpeed = 0.5
-        elif self.gamepad.getRawButton(2):
-            intakeSpeed = -0.5
+        else:
+            intakeSpeed = 0
         self.arm.intakeMotor.set(intakeSpeed)

@@ -37,7 +37,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
             robot.arm.armMotor,
             DCMotor.NEO(1).withReduction(100),
             momentOfInertia=momentOfInertiaForArm(
-                mass=compliantWheelMass * numWheels + 2.5,
+                mass=compliantWheelMass * numWheels + 20, # very heavy arm :)
                 centerOfMassRadius=wpimath.units.inchesToMeters(24),
             ),
             nt=ntArm.folder("Arm")
