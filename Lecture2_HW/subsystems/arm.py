@@ -17,45 +17,44 @@ import utils
 
 class Arm():
     def __init__(self):
-        # HOMEWORK: Create two SparkMax variables here to control two motors:
-        #  - self.armMotor (with ID 10)
-        #  - self.intakeMotor (with ID 11)
+        # Create two motors, one for the arm and one for the intake wheels on
+        # the end of the arm.
+        self.armMotor = rev.SparkMax(10, rev.SparkLowLevel.MotorType.kBrushless)
+        self.intakeMotor = rev.SparkMax(11, rev.SparkLowLevel.MotorType.kBrushless)
 
-        # Code goes here...
-
-        # HOMEWORK: Do NOT change these lines. These should help you verify
-        # that you created the motors correctly above.
-        self.armEncoder = self.armMotor.getEncoder()
+        # HOMEWORK: Create the following variables here by getting objects from
+        # the above motors:
+        #  - self.armEncoder: get by calling getEncoder() on self.armMotor
+        #  - self.armController: get by calling getClosedLoopController() on
+        #    self.armMotor
+        # You can use self.intakeEncoder as an example.
         self.intakeEncoder = self.intakeMotor.getEncoder()
-        self.armController = self.armMotor.getClosedLoopController()
+        # More variables here...
 
-        # HOMEWORK: Configure the motors using config objects from configs.py.
-        #  - self.armMotor should be configured with configs.armMotorConfig.
-        #  - self.intakeMotor should be configured with
-        #    configs.intakeMotorConfig.
-        # In both cases, you can use the following two values for the
-        # resetMode and persistMode parameters:
-        #  - resetMode: rev.SparkMax.ResetMode.kResetSafeParameters
-        #  - persistMode: rev.SparkMax.PersistMode.kPersistParameters
-
-        # Code goes here...
+        # Configure the two motors using configuration objects from configs.py.
+        self.armMotor.configure(
+            configs.armMotorConfig,
+            rev.SparkMax.ResetMode.kResetSafeParameters,
+            rev.SparkMax.PersistMode.kPersistParameters,
+        )
+        self.intakeMotor.configure(
+            configs.intakeMotorConfig,
+            rev.SparkMax.ResetMode.kResetSafeParameters,
+            rev.SparkMax.PersistMode.kPersistParameters,
+        )
 
         # The target angle we would like our arm to hit. This will be passed to
         # the setReference method of the SPARK MAX's closed-loop (PID)
         # controller in this subsystem's periodic method.
-        #
-        # HOMEWORK: Read the above comment, and do not touch this field :)
         self.desiredArmAngle = 0
 
-        # HOMEWORK: Create two NetworkTables topics so we can view arm angles
-        # in AdvantageScope. You should have the following two float topics:
-        #  - AngleDesired
-        #  - AngleActual
+        # Create two NetworkTables topics so we can view arm angles in
+        # AdvantageScope.
         nt = ntutil.folder("Arm")
-        # Create topics here...
+        self.angleDesiredTopic = ntutil.getFloatTopic("AngleDesired")
+        self.angleActualTopic = ntutil.getFloatTopic("AngleActual")
 
-        # Create Mechanism objects to view in AdvantageScope. You should not
-        # touch these fields.
+        # Create Mechanism objects to view in AdvantageScope.
         self.mechActual = self.Mechanism(nt.topicName("MechanismActual"),
                                          armColor=wpilib.Color.kRed,
                                          wheelColor=wpilib.Color.kGreen)
@@ -68,22 +67,24 @@ class Arm():
         Runs subsystem logic on every tick. Should be called from robotPeriodic.
         """
 
-        # HOMEWORK: Set the reference value for the arm's PID controller to
-        # self.desiredArmAngle. Remember to use position mode instead of
-        # velocity mode!
+        # HOMEWORK: Call the setReference() method on the closed-loop
+        # controller created in robotInit to tell the arm's SPARK MAX to target
+        # an angle of self.desiredArmAngle. See 38:09 in the lecture video for
+        # an example.
 
         # Code goes here...
 
-        # HOMEWORK: Report values to AdvantageScope using the NetworkTables
-        # topics created in __init__. You should send the following two values:
+        # HOMEWORK: Report values to AdvantageScope using
+        # self.angleDesiredTopic and self.angleActualTopic, which were created
+        # in __init__. You should send the following two values:
         #  - AngleDesired should be set to self.desiredArmAngle
         #  - AngleActual should be set to the arm encoder's current position.
+        # See the first five minutes of the lecture video for an example.
 
         # Code goes here...
 
-        # Update the mechanisms displayed in AdvantageScope. You do not need to
-        # modify these lines, although you can read them if perhaps you need a
-        # hint :)
+        # Update the mechanisms displayed in AdvantageScope. This will not work
+        # unless you have defined armEncoder correctly in __init__!
         self.mechActual.update(armAngle=self.armEncoder.getPosition(),
                                wheelAngle=self.intakeEncoder.getPosition())
         self.mechDesired.update(armAngle=self.desiredArmAngle,
@@ -95,12 +96,12 @@ class Arm():
         limits.
         """
 
-        # HOMEWORK: Set self.desiredArmAngle to the `angle` parameter above,
-        # but make sure that the value is restricted to fall within
-        # constants.armMinAngle and constants.armMaxAngle. (You can see the
-        # definitions of these values in constants.py.)
-
-        # Code goes here...
+        # HOMEWORK: The line below sets self.desiredArmAngle to the value of
+        # the `angle` parameter, but it does not constrain the value to the
+        # safety limits defined in constants.py. Modify it to make sure that
+        # self.desiredArmAngle is always between constants.minArmAngle and
+        # constants.maxArmAngle. The utils.clamp() function may be useful.
+        self.desiredArmAngle = angle
 
     def setIntakeSpeed(self, speed: float):
         """

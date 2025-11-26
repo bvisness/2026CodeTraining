@@ -1,6 +1,7 @@
 import wpilib
 
 import constants
+import math
 from subsystems.arm import Arm
 import utils
 
@@ -19,22 +20,18 @@ class MyRobot(wpilib.TimedRobot):
         # Code goes here...
         pass
 
-    # HOMEWORK: In robotPeriodic, which runs 50 times per second whether or not
-    # the robot is enabled, call the `periodic` method of self.arm.
+    # HOMEWORK: In robotPeriodic, call the `periodic` method of self.arm to
+    # ensure that subsystem logic is running once per frame.
     def robotPeriodic(self):
         # Code goes here...
         pass
 
-    # HOMEWORK: In teleopPeriodic, add controls for manipulating the arm. It
-    # should work like so:
-    #  - When the left stick is at rest, the arm should be all the way down (at
-    #    an angle of 0 radians).
-    #  - When the left stick is all the way forward, the arm should be all the
-    #    way up (at an angle of pi/2 radians).
-    #  - The intake wheel attached to the arm should spin if the A button is
-    #    being pressed, otherwise the intake wheels should stop.
-    # You can verify if the controls are working correctly by looking at the
-    # Mechanism tab in AdvantageScope like we discussed in class.
+    # Teleop controls for the arm. This will not work until you have defined
+    # self.arm and self.gamepad correctly in robotInit.
     def teleopPeriodic(self):
-        # Code goes here...
-        pass
+        leftStick = self.gamepad.getRawAxis(1)
+        desiredAngle = utils.remap(leftStick, (-1, 1), (math.pi, 0))
+        self.arm.setDesiredArmAngle(desiredAngle)
+
+        intakeSpeed = 0.5 if self.gamepad.getRawButton(1) else 0
+        self.arm.setIntakeSpeed(intakeSpeed)
