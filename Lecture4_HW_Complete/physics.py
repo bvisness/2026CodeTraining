@@ -4,7 +4,7 @@ import typing
 
 import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
-from rev import SparkMaxSim
+from rev import SparkMax, SparkMaxSim
 from wpilib import DriverStation, RobotController
 from wpilib.simulation import BatterySim, RoboRioSim
 import wpimath
@@ -40,11 +40,13 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # Physics device setup
         self.robot = robot
         self.battery = DrainingBatterySim()
-        frontLeft = SwerveModuleSim(robot.drivetrain.frontLeftSwerveModule)
-        frontRight = SwerveModuleSim(robot.drivetrain.frontRightSwerveModule)
-        backLeft = SwerveModuleSim(robot.drivetrain.backLeftSwerveModule)
-        backRight = SwerveModuleSim(robot.drivetrain.backRightSwerveModule)
-        self.drivetrain = SwerveDriveSim(frontLeft, frontRight, backLeft, backRight)
+        self.drivetrain = SwerveDriveSim(
+            robot.drivetrain.frontLeftSwerveModule,
+            robot.drivetrain.frontRightSwerveModule,
+            robot.drivetrain.backLeftSwerveModule,
+            robot.drivetrain.backRightSwerveModule,
+            nt=simFolder.folder("Drivetrain")
+        )
 
     def update_sim(self, now: float, tm_diff: float):
         vbus = RobotController.getBatteryVoltage()
@@ -55,7 +57,10 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # self.swerveStatesTopic.set(list(self.drivetrain.get_module_states()))
 
         # Update simulated electrical state
-        currents = [self.drivetrain.get_current_draw()]
+        # TODO: Our current calculations are currently returning abject
+        # nonsense. For now we will just bypass current draw simulation.
+        # currents = [self.drivetrain.get_current_draw()]
+        currents = []
         self.battery.update_sim(sum(currents), tm_diff)
         RoboRioSim.setVInVoltage(self.battery.output_voltage())
         RoboRioSim.setVInCurrent(self.battery.output_current())
@@ -64,54 +69,42 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
 
 
 class SwerveModuleSim:
-    def __init__(self, module: SwerveModule):
-        self.driveMotorSim = DCMotor.NEO(1).withReduction(constants.kDriveMotorReduction)
-        self.steerMotorSim = DCMotor.NEO550(1).withReduction(constants.kSteerMotorReduction)
-        self.driveSparkSim = SparkMaxSim(module.driveMotor, self.driveMotorSim)
-        self.steerSparkSim = SparkMaxSim(module.steerMotor, self.steerMotorSim)
-        self.driveRelativeEncoderSim = self.driveSparkSim.getRelativeEncoderSim()
-        self.steerRelativeEncoderSim = self.steerSparkSim.getRelativeEncoderSim()
+    def __init__(
+        self,
+        module: SwerveModule,
+        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ):
+        self.driveSparkSim = SparkMaxSim2175(
+            module.driveMotor,
+            DCMotor.NEO(1).withReduction(constants.kDriveMotorReduction),
+            nt=nt.folder("DriveMotor"),
+        )
+        self.steerSparkSim = SparkMaxSim2175(
+            module.steerMotor,
+            DCMotor.NEO550(1).withReduction(constants.kSteerMotorReduction),
+            nt=nt.folder("SteerMotor"),
+        )
         self.steerAbsoluteEncoderSim = self.steerSparkSim.getAbsoluteEncoderSim()
         self.angleOffset = module.angleOffset
-
-        # Calculates the velocity of the drive motor, roughly simulating
-        # inertia and friction. Note that this limits the SPEED of the motors.
-        # Linear change to velocity means constant acceleration, so the units
-        # here check out.
-        # TODO: Delete this and use an actual physics model.
-        self.driveSpeedLimiter = SlewRateLimiter(9.8 * 1) # 1 G (m/s^2)
-
-        # Use a PID controller to simulate velocity of the steer motor
-        # TODO: Delete this and use an actual physics model.
-        self.steerController = PIDController(100, 0, 0) # magic numbers!
-        self.steerController.enableContinuousInput(-math.pi, math.pi)
 
         # Randomize the starting rotation to simulate what we have when we take
         # the field
         self.steerSparkSim.setPosition(random.uniform(-math.pi, math.pi))
 
-        # Cached values from iterate()
-        self.driveCurrent: wpimath.units.amperes = 0
-        self.steerCurrent: wpimath.units.amperes = 0
-
     def update_sim(self, vbus: float, tm_diff: float):
-        targetSpeed = self.driveSparkSim.getSetpoint() if DriverStation.isEnabled() else 0
-        driveSpeed = self.driveSpeedLimiter.calculate(targetSpeed)
-        self.driveSparkSim.iterate(driveSpeed, vbus, tm_diff)
+        self.driveSparkSim.iterate(1, vbus, tm_diff) # 1 m/s
+        self.steerSparkSim.iterate(math.pi*2, vbus, tm_diff) # 1 rev/s in rad/s
+        # targetSpeed = self.driveSparkSim.getSetpoint() if DriverStation.isEnabled() else 0
+        # driveSpeed = self.driveSpeedLimiter.calculate(targetSpeed)
+        # self.driveSparkSim.iterate(driveSpeed, vbus, tm_diff)
 
-        # TODO: redo all of this, it is Jank and Wrong
-        targetAngle = self.steerSparkSim.getSetpoint()
-        currentAngle = wpimath.angleModulus(self.steerSparkSim.getPosition())
-        self.steerController.setSetpoint(targetAngle)
-        steerSpeed = self.steerController.calculate(currentAngle)
-        self.steerSparkSim.iterate(1, vbus, tm_diff) # TODO: 1 mystery unit per second?
-        self.steerAbsoluteEncoderSim.iterate(1, tm_diff) # TODO: Translate from steer motor velocity into encoder angle (should be straightforward gearing)
-
-        # TODO: Collect this little song and dance into a utility function
-        driveVelocity: wpimath.units.radians_per_second = self.driveRelativeEncoderSim.getVelocity() / self.driveRelativeEncoderSim.getVelocityConversionFactor() * (2 * math.pi / 60)
-        steerVelocity: wpimath.units.radians_per_second = self.steerRelativeEncoderSim.getVelocity() / self.steerRelativeEncoderSim.getVelocityConversionFactor() * (2 * math.pi / 60)
-        self.driveCurrent = self.driveMotorSim.current(driveVelocity, vbus * self.driveSparkSim.getAppliedOutput())
-        self.steerCurrent = self.steerMotorSim.current(driveVelocity, vbus * self.steerSparkSim.getAppliedOutput())
+        # # TODO: redo all of this, it is Jank and Wrong
+        # targetAngle = self.steerSparkSim.getSetpoint()
+        # currentAngle = wpimath.angleModulus(self.steerSparkSim.getPosition())
+        # self.steerController.setSetpoint(targetAngle)
+        # steerSpeed = self.steerController.calculate(currentAngle)
+        # self.steerSparkSim.iterate(1, vbus, tm_diff) # TODO: 1 mystery unit per second?
+        # self.steerAbsoluteEncoderSim.iterate(1, tm_diff) # TODO: Translate from steer motor velocity into encoder angle (should be straightforward gearing)
 
     def get_state(self) -> SwerveModuleState:
         return SwerveModuleState(
@@ -120,20 +113,32 @@ class SwerveModuleSim:
         )
 
     def get_current_draw(self) -> wpimath.units.amperes:
-        # TODO: y u no output current? u move motor? anything work?
-        return self.driveCurrent + self.steerCurrent
+        return self.driveSparkSim.getMotorCurrent() + self.steerSparkSim.getMotorCurrent()
 
 
 class SwerveDriveSim:
-    def __init__(self, frontLeft: SwerveModuleSim, frontRight: SwerveModuleSim, backLeft: SwerveModuleSim, backRight: SwerveModuleSim):
+    def __init__(
+        self,
+        frontLeft: SwerveModule,
+        frontRight: SwerveModule,
+        backLeft: SwerveModule,
+        backRight: SwerveModule,
+        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ):
+        # TODO: Get from constants
         wd = wpimath.units.inchesToMeters(12.5) # wheel distance
+        self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (
+            SwerveModuleSim(frontLeft, nt=nt.folder("FrontLeft")),
+            SwerveModuleSim(frontRight, nt=nt.folder("FrontRight")),
+            SwerveModuleSim(backLeft, nt=nt.folder("BackLeft")),
+            SwerveModuleSim(backRight, nt=nt.folder("BackRight")),
+        )
         self.kinematics = SwerveDrive4Kinematics(
             Translation2d(wd, wd),
             Translation2d(wd, -wd),
             Translation2d(-wd, wd),
             Translation2d(-wd, -wd),
         )
-        self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (frontLeft, frontRight, backLeft, backRight)
 
         # # Per the navX docs, the recommended way to use the navX as a sim
         # # device is to just use the real device but set the simulator variable
@@ -171,7 +176,8 @@ class SwerveDriveSim:
         self.pose = pose
 
     def get_current_draw(self) -> wpimath.units.amperes:
-        return sum(s.get_current_draw() for s in self.modules)
+        current = sum(s.get_current_draw() for s in self.modules)
+        return current
 
 
 class DrainingBatterySim():
@@ -208,3 +214,39 @@ class DrainingBatterySim():
 
     def output_current(self) -> wpimath.units.amperes:
         return self.currentDraw
+
+
+class SparkMaxSim2175(SparkMaxSim):
+    """
+    A wrapper around rev's SparkMaxSim that automatically performs
+    NetworkTables logging of sim-specific state.
+
+    Also, the existing SparkMaxSim class seems to have a bug where the
+    getMotorCurrent() method returns NaN. I do not know why. It would be good
+    to figure this out. But for now we override it with our own custom logic.
+    """
+
+    def __init__(
+        self,
+        sparkMax: SparkMax,
+        motor: DCMotor,
+        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ) -> None:
+        super().__init__(sparkMax, motor)
+        self.encoder = self.getRelativeEncoderSim()
+        self.motor = motor
+        self.lastVbus: float = 0
+
+        self.velocityTopic = nt.getFloatTopic("SimVelocity")
+        self.currentTopic = nt.getFloatTopic("SimCurrent")
+
+    def iterate(self, velocity, vbus, dt):
+        super().iterate(velocity, vbus, dt)
+        self.lastVbus = float(vbus)
+        self.velocityTopic.set(self.encoder.getVelocity())
+        self.currentTopic.set(self.getMotorCurrent())
+
+    def getMotorCurrent(self) -> wpimath.units.amperes:
+        speed: wpimath.units.radians_per_second = abs(self.encoder.getVelocity() / self.encoder.getVelocityConversionFactor()) * (2 * math.pi / 60)
+        current = self.motor.current(speed, self.lastVbus * self.getAppliedOutput())
+        return current

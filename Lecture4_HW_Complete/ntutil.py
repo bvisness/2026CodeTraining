@@ -4,6 +4,7 @@ import ntcore
 import wpilib
 import wpiutil.log
 
+
 # =============================================================================
 # This file contains utilities for sending values to NetworkTables for display
 # in AdvantageScope and other tools. You should NOT edit this for the homework.
@@ -12,6 +13,7 @@ import wpiutil.log
 nt = ntcore.NetworkTableInstance.getDefault()
 
 T = TypeVar("T")
+
 
 class _NTTopic(Generic[T]):
     def __init__(self, topic, default: T):
@@ -30,6 +32,22 @@ class _NTTopic(Generic[T]):
     def setDefault(self, value: T) -> None:
         self.publisher.setDefault(value)
 
+
+class _DummyNTTopic(_NTTopic[T], Generic[T]):
+    def __init__(self, default: T | None = None):
+        pass
+
+    def get(self, defaultValue: T | None = None) -> T:
+        # Returns None if no defaultValue is provided, but you know, who cares
+        return defaultValue  # type: ignore
+
+    def set(self, value: T) -> None:
+        pass
+
+    def setDefault(self, value: T) -> None:
+        pass
+
+
 class _NTFolder:
     def __init__(self, prefix: str):
         self.prefix = prefix
@@ -41,6 +59,9 @@ class _NTFolder:
         return _NTFolder(self.prefix + "/" + name)
 
     # Plain NetworkTables topics
+
+    def topicName(self, name: str):
+        return self.prefix + "/" + name
 
     def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
         return _NTTopic(nt.getBooleanArrayTopic(self.prefix + "/" + name), defaultValue)
@@ -73,6 +94,47 @@ class _NTFolder:
         if defaultValue is None:
             defaultValue = type()
         return _NTTopic(nt.getStructTopic(self.prefix + "/" + name, type), defaultValue)
+
+
+class _DummyNTFolder(_NTFolder):
+    def __init__(self, prefix: str = "DUMMY"):
+        self.prefix = prefix
+
+    def folder(self, name: str):
+        return _DummyNTFolder(self.prefix + "/" + name)
+
+    def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
+        return _DummyNTTopic(defaultValue)
+
+    def getBooleanTopic(self, name: str, defaultValue: bool = False) -> _NTTopic[bool]:
+        return _DummyNTTopic(defaultValue)
+
+    def getFloatArrayTopic(self, name: str, defaultValue: List[float] = []) -> _NTTopic[List[float]]:
+        return _DummyNTTopic(defaultValue)
+    
+    def getFloatTopic(self, name: str, defaultValue: float = 0) -> _NTTopic[float]:
+        return _DummyNTTopic(defaultValue)
+    
+    def getIntegerArrayTopic(self, name: str, defaultValue: List[int] = []) -> _NTTopic[List[int]]:
+        return _DummyNTTopic(defaultValue)
+
+    def getIntegerTopic(self, name: str, defaultValue: int = 0) -> _NTTopic[int]:
+        return _DummyNTTopic(defaultValue)
+
+    def getStringArrayTopic(self, name: str, defaultValue: List[str] = []) -> _NTTopic[List[str]]:
+        return _DummyNTTopic(defaultValue)
+
+    def getStringTopic(self, name: str, defaultValue: str = "") -> _NTTopic[str]:
+        return _DummyNTTopic(defaultValue)
+
+    def getStructArrayTopic(self, name: str, type: Type[T], defaultValue: List[T] = []) -> _NTTopic[List[T]]:
+        return _DummyNTTopic(defaultValue)
+
+    def getStructTopic(self, name: str, type: Type[T], defaultValue: T | None = None) -> _NTTopic[T]:
+        if defaultValue is None:
+            defaultValue = type()
+        return _DummyNTTopic(defaultValue)
+
 
 _globalFolder = _NTFolder("")
 
