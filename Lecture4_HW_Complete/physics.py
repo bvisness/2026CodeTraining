@@ -33,13 +33,11 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # NetworkTables topics
         simFolder = ntutil.folder("Sim")
         self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
-        battery = simFolder.folder("Battery")
-        self.batteryVoltageTopic = battery.getFloatTopic("Voltage")
-        self.batteryCurrentTopic = battery.getFloatTopic("Current")
 
         # Physics device setup
         self.robot = robot
-        self.battery = DrainingBatterySim()
+        self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
+        # self.battery = DrainingBatterySim(nt=simFolder.folder("Battery"))
         self.drivetrain = SwerveDriveSim(
             robot.drivetrain.frontLeftSwerveModule,
             robot.drivetrain.frontRightSwerveModule,
@@ -65,8 +63,6 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         self.battery.update_sim(sum(currents), tm_diff)
         RoboRioSim.setVInVoltage(self.battery.output_voltage())
         RoboRioSim.setVInCurrent(self.battery.output_current())
-        self.batteryVoltageTopic.set(RobotController.getBatteryVoltage())
-        self.batteryCurrentTopic.set(RobotController.getInputCurrent())
 
 
 class SwerveModuleSim:
@@ -75,6 +71,7 @@ class SwerveModuleSim:
         module: SwerveModule,
         *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ):
+        self.realModule = module
         self.driveSparkSim = SparkMaxSim2175(
             module.driveMotor,
             DCMotor.NEO(1).withReduction(constants.driveMotorReduction),
@@ -108,10 +105,7 @@ class SwerveModuleSim:
         # self.steerAbsoluteEncoderSim.iterate(1, tm_diff) # TODO: Translate from steer motor velocity into encoder angle (should be straightforward gearing)
 
     def get_state(self) -> SwerveModuleState:
-        return SwerveModuleState(
-            wpimath.units.meters_per_second(self.driveSparkSim.getVelocity()),
-            Rotation2d(self.steerAbsoluteEncoderSim.getPosition() - self.angleOffset)
-        )
+        return self.realModule.getState()
 
     def get_current_draw(self) -> wpimath.units.amperes:
         return self.driveSparkSim.getMotorCurrent() + self.steerSparkSim.getMotorCurrent()
@@ -177,12 +171,38 @@ class SwerveDriveSim:
         return current
 
 
-class DrainingBatterySim():
-    """
-    An extended version of the WPILib BatterySim that simulates typical battery
-    drain over the course of a match.
-    """
+class BatterySim2175():
+    def __init__(self, *, nt: ntutil._NTFolder = ntutil._DummyNTFolder()):
+        self.currentDraw: wpimath.units.amperes = 0
+        self.voltageTopic = nt.getFloatTopic("Voltage")
+        self.currentTopic = nt.getFloatTopic("Current")
 
+    def update_sim(self, current_draw: wpimath.units.amperes, tm_diff: float):
+        self.currentDraw = current_draw
+        self.voltageTopic.set(self.output_voltage())
+        self.currentTopic.set(self.output_current())
+
+    def output_voltage(self) -> wpimath.units.volts:
+        return 0
+
+    def output_current(self) -> wpimath.units.amperes:
+        return self.currentDraw
+
+
+class NormalBatterySim(BatterySim2175):
+    def __init__(
+        self,
+        volts: wpimath.units.volts = 12,
+        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ):
+        super().__init__(nt=nt)
+        self.volts = volts
+
+    def output_voltage(self):
+        return self.volts
+
+
+class DrainingBatterySim(BatterySim2175):
     # Empirical good-enough voltage values for an FRC battery as it drains.
     MAX_OUTPUT_VOLTS: wpimath.units.volts = 12.9
     MIN_OUTPUT_VOLTS: wpimath.units.volts = 10.5
@@ -190,14 +210,19 @@ class DrainingBatterySim():
     # Less than the nominal amp-hours of 18, for Realism.
     FULL_BATTERY_AMP_HOURS: wpimath.units.ampere_hours = 12
 
-    def __init__(self, *, usable_amp_hours: wpimath.units.ampere_hours | None = None):
+    def __init__(self,
+        *,
+        usable_amp_hours: wpimath.units.ampere_hours | None = None,
+        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ):
+        super().__init__(nt=nt)
         self.charge: wpimath.units.ampere_hours = DrainingBatterySim.FULL_BATTERY_AMP_HOURS if usable_amp_hours is None else usable_amp_hours
-        self.currentDraw: wpimath.units.amperes = 0
 
     def update_sim(self, current_draw: wpimath.units.amperes, tm_diff: float):
         spentCharge: wpimath.units.ampere_hours = current_draw * (tm_diff / 60 / 60)
         self.currentDraw = current_draw
         self.charge = max(0, self.charge - spentCharge)
+        super().update_sim(current_draw, tm_diff)
 
     def nominal_voltage(self) -> wpimath.units.volts:
         return utils.remap(
@@ -208,9 +233,6 @@ class DrainingBatterySim():
 
     def output_voltage(self) -> wpimath.units.volts:
         return BatterySim.calculate(self.nominal_voltage(), 0.020, currents=[self.currentDraw])
-
-    def output_current(self) -> wpimath.units.amperes:
-        return self.currentDraw
 
 
 class SparkMaxSim2175(SparkMaxSim):
