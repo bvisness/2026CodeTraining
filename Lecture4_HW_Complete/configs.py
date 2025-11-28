@@ -10,14 +10,14 @@ import constants
 driveMotorConfig = rev.SparkMaxConfig()
 driveMotorConfig.smartCurrentLimit(40)
 # Convert position from rotations to m
-driveMotorConfig.encoder.positionConversionFactor(math.pi * constants.kWheelDiameter / constants.kDriveMotorReduction)
+driveMotorConfig.encoder.positionConversionFactor(math.pi * constants.wheelDiameter / constants.driveMotorReduction)
 # Convert velocity from RPM to m/s
 driveMotorConfig.encoder.velocityConversionFactor(
-  math.pi * constants.kWheelDiameter / constants.kDriveMotorReduction / 60
+  math.pi * constants.wheelDiameter / constants.driveMotorReduction / 60
 )
 # Use PIDF for control with the built-in NEO encoder for feedback.
 driveMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kPrimaryEncoder)
-driveMotorConfig.closedLoop.pidf(0, 0, 0, 1 / constants.kMaxSpeed)
+driveMotorConfig.closedLoop.pidf(0, 0, 0, 1 / constants.maxSpeed)
 
 steerMotorConfig = rev.SparkMaxConfig()
 steerMotorConfig.smartCurrentLimit(40)

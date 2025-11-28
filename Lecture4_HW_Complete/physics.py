@@ -45,6 +45,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
             robot.drivetrain.frontRightSwerveModule,
             robot.drivetrain.backLeftSwerveModule,
             robot.drivetrain.backRightSwerveModule,
+            robot.drivetrain.kinematics,
             nt=simFolder.folder("Drivetrain")
         )
 
@@ -76,12 +77,12 @@ class SwerveModuleSim:
     ):
         self.driveSparkSim = SparkMaxSim2175(
             module.driveMotor,
-            DCMotor.NEO(1).withReduction(constants.kDriveMotorReduction),
+            DCMotor.NEO(1).withReduction(constants.driveMotorReduction),
             nt=nt.folder("DriveMotor"),
         )
         self.steerSparkSim = SparkMaxSim2175(
             module.steerMotor,
-            DCMotor.NEO550(1).withReduction(constants.kSteerMotorReduction),
+            DCMotor.NEO550(1).withReduction(constants.steerMotorReduction),
             nt=nt.folder("SteerMotor"),
         )
         self.steerAbsoluteEncoderSim = self.steerSparkSim.getAbsoluteEncoderSim()
@@ -123,6 +124,7 @@ class SwerveDriveSim:
         frontRight: SwerveModule,
         backLeft: SwerveModule,
         backRight: SwerveModule,
+        kinematics: SwerveDrive4Kinematics,
         *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ):
         # TODO: Get from constants
@@ -133,12 +135,7 @@ class SwerveDriveSim:
             SwerveModuleSim(backLeft, nt=nt.folder("BackLeft")),
             SwerveModuleSim(backRight, nt=nt.folder("BackRight")),
         )
-        self.kinematics = SwerveDrive4Kinematics(
-            Translation2d(wd, wd),
-            Translation2d(wd, -wd),
-            Translation2d(-wd, wd),
-            Translation2d(-wd, -wd),
-        )
+        self.kinematics = kinematics
 
         # # Per the navX docs, the recommended way to use the navX as a sim
         # # device is to just use the real device but set the simulator variable
