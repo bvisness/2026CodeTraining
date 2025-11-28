@@ -21,7 +21,7 @@ class SwerveModule:
     self.drivePidController = self.driveMotor.getClosedLoopController()
     self.steerPidController = self.steerMotor.getClosedLoopController()
   
-  def setState(self, state: SwerveModuleState):
+  def setDesiredState(self, state: SwerveModuleState):
     state.angle += Rotation2d(self.angleOffset)
     encoderRotation = Rotation2d(self.steerAbsoluteEncoder.getPosition())
     state.optimize(encoderRotation)

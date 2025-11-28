@@ -1,6 +1,7 @@
 import math
 from wpimath.geometry import Pose2d, Rotation2d, Translation2d
-from wpimath.kinematics import SwerveModuleState, SwerveDrive4Kinematics
+from wpimath.kinematics import ChassisSpeeds, SwerveModuleState, SwerveDrive4Kinematics
+import wpimath.units
 
 import constants
 import ntutil
@@ -21,14 +22,39 @@ class Drivetrain:
             Translation2d(-wd, wd),
             Translation2d(-wd, -wd),
         )
+        self.desiredChassisSpeeds = ChassisSpeeds()
 
         self.nt = ntutil.folder("Drivetrain")
         self.actualStatesTopic = self.nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
+        self.desiredStatesTopic = self.nt.getStructArrayTopic("DesiredSwerveStates", SwerveModuleState)
 
     def periodic(self):
+        # Compute desired swerve module states and apply to swerve modules
+        frontLeft, frontRight, backLeft, backRight = self.kinematics.toSwerveModuleStates(self.desiredChassisSpeeds)
+        self.frontLeftSwerveModule.setDesiredState(frontLeft)
+        self.frontRightSwerveModule.setDesiredState(frontRight)
+        self.backLeftSwerveModule.setDesiredState(backLeft)
+        self.backRightSwerveModule.setDesiredState(backRight)
+
+        # Report actual/desired swerve states
         self.actualStatesTopic.set([
             self.frontLeftSwerveModule.getState(),
             self.frontRightSwerveModule.getState(),
             self.backLeftSwerveModule.getState(),
             self.backRightSwerveModule.getState(),
         ])
+        self.desiredStatesTopic.set([
+            frontLeft,
+            frontRight,
+            backLeft,
+            backRight,
+        ])
+
+    def drive(
+        self,
+        xSpeed: wpimath.units.meters_per_second,
+        ySpeed: wpimath.units.meters_per_second,
+        turnSpeed: wpimath.units.radians_per_second,
+    ):
+        # TODO: Get heading from navX
+        self.desiredChassisSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(xSpeed, ySpeed, turnSpeed, Rotation2d())
