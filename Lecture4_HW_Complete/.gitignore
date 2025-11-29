@@ -225,3 +225,5 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+simgui*.json
