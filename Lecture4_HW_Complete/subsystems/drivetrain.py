@@ -25,8 +25,9 @@ class Drivetrain:
         self.desiredChassisSpeeds = ChassisSpeeds()
 
         self.nt = ntutil.folder("Drivetrain")
-        self.actualStatesTopic = self.nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
+        self.desiredChassisSpeedsTopic = self.nt.getStructTopic("DesiredChassisSpeeds", ChassisSpeeds)
         self.desiredStatesTopic = self.nt.getStructArrayTopic("DesiredSwerveStates", SwerveModuleState)
+        self.actualStatesTopic = self.nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
 
     def periodic(self):
         # Compute desired swerve module states and apply to swerve modules
@@ -36,18 +37,19 @@ class Drivetrain:
         self.backLeftSwerveModule.setDesiredState(backLeft)
         self.backRightSwerveModule.setDesiredState(backRight)
 
-        # Report actual/desired swerve states
-        self.actualStatesTopic.set([
-            self.frontLeftSwerveModule.getState(),
-            self.frontRightSwerveModule.getState(),
-            self.backLeftSwerveModule.getState(),
-            self.backRightSwerveModule.getState(),
-        ])
+        # Report actual/desired swerve info
+        self.desiredChassisSpeedsTopic.set(self.desiredChassisSpeeds)
         self.desiredStatesTopic.set([
             frontLeft,
             frontRight,
             backLeft,
             backRight,
+        ])
+        self.actualStatesTopic.set([
+            self.frontLeftSwerveModule.getActualState(),
+            self.frontRightSwerveModule.getActualState(),
+            self.backLeftSwerveModule.getActualState(),
+            self.backRightSwerveModule.getActualState(),
         ])
 
     def drive(

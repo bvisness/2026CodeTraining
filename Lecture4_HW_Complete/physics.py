@@ -105,7 +105,7 @@ class SwerveModuleSim:
         # self.steerAbsoluteEncoderSim.iterate(1, tm_diff) # TODO: Translate from steer motor velocity into encoder angle (should be straightforward gearing)
 
     def get_state(self) -> SwerveModuleState:
-        return self.realModule.getState()
+        return self.realModule.getActualState()
 
     def get_current_draw(self) -> wpimath.units.amperes:
         return self.driveSparkSim.getMotorCurrent() + self.steerSparkSim.getMotorCurrent()
