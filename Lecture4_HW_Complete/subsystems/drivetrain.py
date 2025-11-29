@@ -15,13 +15,13 @@ class Drivetrain:
         self.backLeftSwerveModule = SwerveModule(26, 24, math.pi)
         self.backRightSwerveModule = SwerveModule(27, 23, math.pi/2)
 
-        wd = constants.wheelDistanceFromCenter
-        self.kinematics = SwerveDrive4Kinematics(
-            Translation2d(wd, wd),
-            Translation2d(wd, -wd),
-            Translation2d(-wd, wd),
-            Translation2d(-wd, -wd),
+        self.modulePositions = (
+            Translation2d(constants.wheelDistanceFromCenter, constants.wheelDistanceFromCenter),
+            Translation2d(constants.wheelDistanceFromCenter, -constants.wheelDistanceFromCenter),
+            Translation2d(-constants.wheelDistanceFromCenter, constants.wheelDistanceFromCenter),
+            Translation2d(-constants.wheelDistanceFromCenter, -constants.wheelDistanceFromCenter),
         )
+        self.kinematics = SwerveDrive4Kinematics(*self.modulePositions)
         self.desiredChassisSpeeds = ChassisSpeeds()
 
         self.nt = ntutil.folder("Drivetrain")

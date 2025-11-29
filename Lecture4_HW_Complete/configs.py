@@ -1,5 +1,6 @@
 import math
 import rev
+from wpilib import RobotBase
 
 import constants
 
@@ -13,7 +14,7 @@ driveMotorConfig.smartCurrentLimit(40)
 driveMotorConfig.encoder.positionConversionFactor(math.pi * constants.wheelDiameter / constants.driveMotorReduction)
 # Convert velocity from RPM to m/s
 driveMotorConfig.encoder.velocityConversionFactor(
-  math.pi * constants.wheelDiameter / constants.driveMotorReduction / 60
+    math.pi * constants.wheelDiameter / constants.driveMotorReduction / 60
 )
 # Use PIDF for control with the built-in NEO encoder for feedback.
 driveMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kPrimaryEncoder)
@@ -32,6 +33,9 @@ steerMotorConfig.absoluteEncoder.velocityConversionFactor(2 * math.pi / 60)
 # Use PID for control with the absolute encoder for feedback. Because this PID
 # controller works in angles, which wrap around, we enable position wrapping.
 steerMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kAbsoluteEncoder)
-steerMotorConfig.closedLoop.pid(1, 0, 0)
+if RobotBase.isSimulation():
+    steerMotorConfig.closedLoop.pid(0.2, 0, 0)
+else:
+    steerMotorConfig.closedLoop.pid(1, 0, 0)
 steerMotorConfig.closedLoop.positionWrappingEnabled(True)
 steerMotorConfig.closedLoop.positionWrappingInputRange(-math.pi, math.pi)

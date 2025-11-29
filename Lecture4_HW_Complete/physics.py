@@ -4,6 +4,7 @@ import typing
 
 import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
+import rev
 from rev import SparkMax, SparkMaxSim
 from wpilib import DriverStation, RobotController
 from wpilib.simulation import BatterySim, RoboRioSim
@@ -11,7 +12,7 @@ import wpimath
 import wpimath.units
 from wpimath.controller import PIDController
 from wpimath.filter import SlewRateLimiter
-from wpimath.geometry import Pose2d, Rotation2d, Translation2d
+from wpimath.geometry import Pose2d, Rotation2d, Transform2d, Translation2d
 from wpimath.kinematics import ChassisSpeeds, SwerveDrive4Kinematics, SwerveModuleState
 from wpimath.system.plant import DCMotor
 
@@ -19,6 +20,8 @@ import constants
 from hardware.swervemodule import SwerveModule
 import ntutil
 from robot import MyRobot
+from sim.rotating import RotatingObject, moiForWheel
+from subsystems.drivetrain import Drivetrain
 import utils
 
 
@@ -38,21 +41,14 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         self.robot = robot
         self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
         # self.battery = DrainingBatterySim(nt=simFolder.folder("Battery"))
-        self.drivetrain = SwerveDriveSim(
-            robot.drivetrain.frontLeftSwerveModule,
-            robot.drivetrain.frontRightSwerveModule,
-            robot.drivetrain.backLeftSwerveModule,
-            robot.drivetrain.backRightSwerveModule,
-            robot.drivetrain.kinematics,
-            nt=simFolder.folder("Drivetrain")
-        )
+        self.drivetrain = DrivetrainSim(robot.drivetrain, nt=simFolder.folder("Drivetrain"))
 
     def update_sim(self, now: float, tm_diff: float):
         vbus = RobotController.getBatteryVoltage()
 
-        self.drivetrain.update_sim(vbus, tm_diff)
+        self.drivetrain.iterate(vbus, tm_diff)
 
-        self.poseTopic.set(self.drivetrain.get_pose())
+        self.poseTopic.set(self.drivetrain.getPose())
         # self.swerveStatesTopic.set(list(self.drivetrain.get_module_states()))
 
         # Update simulated electrical state
@@ -60,12 +56,101 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # nonsense. For now we will just bypass current draw simulation.
         # currents = [self.drivetrain.get_current_draw()]
         currents = []
-        self.battery.update_sim(sum(currents), tm_diff)
-        RoboRioSim.setVInVoltage(self.battery.output_voltage())
-        RoboRioSim.setVInCurrent(self.battery.output_current())
+        self.battery.iterate(sum(currents), tm_diff)
+        RoboRioSim.setVInVoltage(self.battery.outputVoltage())
+        RoboRioSim.setVInCurrent(self.battery.outputCurrent())
+
+
+class DrivetrainSim:
+    def __init__(
+        self,
+        drivetrain: Drivetrain,
+        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+    ):
+        self.realDrivetrain = drivetrain
+        self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (
+            SwerveModuleSim(drivetrain.frontLeftSwerveModule, nt=nt.folder("FrontLeft")),
+            SwerveModuleSim(drivetrain.frontRightSwerveModule, nt=nt.folder("FrontRight")),
+            SwerveModuleSim(drivetrain.backLeftSwerveModule, nt=nt.folder("BackLeft")),
+            SwerveModuleSim(drivetrain.backRightSwerveModule, nt=nt.folder("BackRight")),
+        )
+        self.modulePositions = drivetrain.modulePositions
+        self.kinematics = drivetrain.kinematics
+        # # Per the navX docs, the recommended way to use the navX as a sim
+        # # device is to just use the real device but set the simulator variable
+        # # for Yaw directly.
+        # #
+        # # https://pdocs.kauailabs.com/navx-mxp/software/roborio-libraries/c/
+        # navXDevice = hal.simulation.getSimDeviceHandle(f"navX-Sensor[{drivetrain.gyro.getPort()}]")
+        # self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
+
+        self.pose = Pose2d()
+        self.moduleTranslationSpeeds: list[wpimath.units.meters_per_second] = [0, 0, 0, 0]
+
+        self.moduleTranslationSpeedsTopic = nt.getStructArrayTopic("ModuleTranslationSpeeds", SwerveModuleState)
+
+    def iterate(self, vbus: float, dt: float):
+        modulePosesBefore = self.getModulePoses(self.pose)
+
+        for module, moduleSpeed in zip(self.modules, self.moduleTranslationSpeeds):
+            module.iterate(moduleSpeed, vbus, dt)
+        moduleStates = self.getModuleStates()
+        # TODO: Get swerve pose from actual forces / torques, not just applying
+        # the desired chassisSpeeds.
+        # chassisSpeeds = self.kinematics.toChassisSpeeds(moduleStates)
+        chassisSpeeds = self.realDrivetrain.desiredChassisSpeedsTopic.get()
+        self.pose = self.pose.exp(chassisSpeeds.toTwist2d(dt))
+
+        modulePosesAfter = self.getModulePoses(self.pose)
+        
+        self.moduleTranslationSpeeds = [
+            (after - before).translation().norm() / dt
+            for before, after in zip(modulePosesBefore, modulePosesAfter)
+        ]
+        self.moduleTranslationSpeedsTopic.set([
+            SwerveModuleState(speed, moduleState.angle)
+            for speed, moduleState in zip(self.moduleTranslationSpeeds, moduleStates)
+        ])
+
+        # # Update the simulated gyro. For reasons unknown, the navX uses
+        # # clockwise degrees.
+        # self.navXAngleSim.set(-self.pose.rotation().degrees())
+
+    def getModuleStates(self):
+        return (
+            self.modules[0].getState(),
+            self.modules[1].getState(),
+            self.modules[2].getState(),
+            self.modules[3].getState(),
+        )
+
+    def getModulePoses(self, pose: Pose2d):
+        return [pose.transformBy(Transform2d(t, Rotation2d())) for t in self.modulePositions]
+
+    def getPose(self):
+        return self.pose
+
+    def setPose(self, pose: Pose2d):
+        self.pose = pose
+
+    def getCurrentDraw(self) -> wpimath.units.amperes:
+        current = sum(s.getCurrentDraw() for s in self.modules)
+        return current
 
 
 class SwerveModuleSim:
+    """
+    Simulates a single swerve module.
+
+    Velocities of each motor are computed like so:
+     - Steer motor velocity is simulated using "flywheel"-style physics sim
+       with significant friction. It is assumed that the steer motor's velocity
+       conversion factor is to radians per second.
+     - Drive motor velocity is simulated using the motion of the simulated
+       swerve module (that is, its linear motion from tick to tick). This
+       requires input from outside. It is assumed that the drive motor's
+       velocity conversion factor is to meters per second.
+    """
     def __init__(
         self,
         module: SwerveModule,
@@ -82,93 +167,48 @@ class SwerveModuleSim:
             DCMotor.NEO550(1).withReduction(constants.steerMotorReduction),
             nt=nt.folder("SteerMotor"),
         )
-        self.steerAbsoluteEncoderSim = self.steerSparkSim.getAbsoluteEncoderSim()
-        self.angleOffset = module.angleOffset
+
+        self.steerPhysics = RotatingObject(
+            # Pretty random estimates for the mass of the rotating part and the
+            # "diameters" of this definitely not wheel-shaped thing, but it
+            # shouldn't really matter.
+            momentOfInertia=moiForWheel(
+                mass=1,
+                outerDiameter=wpimath.units.inchesToMeters(5),
+                innerDiameter=wpimath.units.inchesToMeters(0.5),
+            ),
+            # Rough estimate for scrub friction (from ChatGPT with number
+            # ranges sanity-checked): T = kF * N * A, where T = friction
+            # torque (Newton-meters), kF = coefficient of friction, N = normal
+            # force (Newtons), A = contact area (meters^2). Plausible values
+            # for all result in plausible-enough results, I guess.
+            friction=0.1 * 100 * 0.05,
+            nt=nt.folder("SteerPhysics"),
+        )
 
         # Randomize the starting rotation to simulate what we have when we take
         # the field
         self.steerSparkSim.setPosition(random.uniform(-math.pi, math.pi))
 
-    def update_sim(self, vbus: float, tm_diff: float):
-        self.driveSparkSim.iterate(1, vbus, tm_diff) # 1 m/s
-        self.steerSparkSim.iterate(math.pi*2, vbus, tm_diff) # 1 rev/s in rad/s
-        # targetSpeed = self.driveSparkSim.getSetpoint() if DriverStation.isEnabled() else 0
-        # driveSpeed = self.driveSpeedLimiter.calculate(targetSpeed)
-        # self.driveSparkSim.iterate(driveSpeed, vbus, tm_diff)
+    def iterate(
+        self,
+        moduleTranslationSpeed: wpimath.units.meters_per_second,
+        vbus: float,
+        dt: float,
+    ):
+        # Iterate motor controllers
+        self.driveSparkSim.iterate(moduleTranslationSpeed, vbus, dt)
+        self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
 
-        # # TODO: redo all of this, it is Jank and Wrong
-        # targetAngle = self.steerSparkSim.getSetpoint()
-        # currentAngle = wpimath.angleModulus(self.steerSparkSim.getPosition())
-        # self.steerController.setSetpoint(targetAngle)
-        # steerSpeed = self.steerController.calculate(currentAngle)
-        # self.steerSparkSim.iterate(1, vbus, tm_diff) # TODO: 1 mystery unit per second?
-        # self.steerAbsoluteEncoderSim.iterate(1, tm_diff) # TODO: Translate from steer motor velocity into encoder angle (should be straightforward gearing)
+        # Update steer physics for next tick
+        # TODO: Seems like the torque calculation here is going absolutely bonkers.
+        self.steerPhysics.iterate(self.steerSparkSim.getMotorTorque(), dt)
 
-    def get_state(self) -> SwerveModuleState:
+    def getState(self) -> SwerveModuleState:
         return self.realModule.getActualState()
 
-    def get_current_draw(self) -> wpimath.units.amperes:
+    def getCurrentDraw(self) -> wpimath.units.amperes:
         return self.driveSparkSim.getMotorCurrent() + self.steerSparkSim.getMotorCurrent()
-
-
-class SwerveDriveSim:
-    def __init__(
-        self,
-        frontLeft: SwerveModule,
-        frontRight: SwerveModule,
-        backLeft: SwerveModule,
-        backRight: SwerveModule,
-        kinematics: SwerveDrive4Kinematics,
-        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
-    ):
-        # TODO: Get from constants
-        wd = wpimath.units.inchesToMeters(12.5) # wheel distance
-        self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (
-            SwerveModuleSim(frontLeft, nt=nt.folder("FrontLeft")),
-            SwerveModuleSim(frontRight, nt=nt.folder("FrontRight")),
-            SwerveModuleSim(backLeft, nt=nt.folder("BackLeft")),
-            SwerveModuleSim(backRight, nt=nt.folder("BackRight")),
-        )
-        self.kinematics = kinematics
-
-        # # Per the navX docs, the recommended way to use the navX as a sim
-        # # device is to just use the real device but set the simulator variable
-        # # for Yaw directly.
-        # #
-        # # https://pdocs.kauailabs.com/navx-mxp/software/roborio-libraries/c/
-        # navXDevice = hal.simulation.getSimDeviceHandle(f"navX-Sensor[{drivetrain.gyro.getPort()}]")
-        # self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
-
-        self.pose = Pose2d()
-
-    def update_sim(self, vbus: float, tm_diff: float):
-        for module in self.modules:
-            module.update_sim(vbus, tm_diff)
-        moduleStates = self.get_module_states()
-        chassisSpeeds = self.kinematics.toChassisSpeeds(moduleStates)
-        self.pose = self.pose.exp(chassisSpeeds.toTwist2d(tm_diff))
-
-        # # Update the simulated gyro. For reasons unknown, the navX uses
-        # # clockwise degrees.
-        # self.navXAngleSim.set(-self.pose.rotation().degrees())
-
-    def get_module_states(self):
-        return (
-            self.modules[0].get_state(),
-            self.modules[1].get_state(),
-            self.modules[2].get_state(),
-            self.modules[3].get_state(),
-        )
-
-    def get_pose(self):
-        return self.pose
-
-    def set_pose(self, pose: Pose2d):
-        self.pose = pose
-
-    def get_current_draw(self) -> wpimath.units.amperes:
-        current = sum(s.get_current_draw() for s in self.modules)
-        return current
 
 
 class BatterySim2175():
@@ -177,15 +217,15 @@ class BatterySim2175():
         self.voltageTopic = nt.getFloatTopic("Voltage")
         self.currentTopic = nt.getFloatTopic("Current")
 
-    def update_sim(self, current_draw: wpimath.units.amperes, tm_diff: float):
+    def iterate(self, current_draw: wpimath.units.amperes, dt: float):
         self.currentDraw = current_draw
-        self.voltageTopic.set(self.output_voltage())
-        self.currentTopic.set(self.output_current())
+        self.voltageTopic.set(self.outputVoltage())
+        self.currentTopic.set(self.outputCurrent())
 
-    def output_voltage(self) -> wpimath.units.volts:
+    def outputVoltage(self) -> wpimath.units.volts:
         return 0
 
-    def output_current(self) -> wpimath.units.amperes:
+    def outputCurrent(self) -> wpimath.units.amperes:
         return self.currentDraw
 
 
@@ -198,7 +238,7 @@ class NormalBatterySim(BatterySim2175):
         super().__init__(nt=nt)
         self.volts = volts
 
-    def output_voltage(self):
+    def outputVoltage(self):
         return self.volts
 
 
@@ -218,31 +258,28 @@ class DrainingBatterySim(BatterySim2175):
         super().__init__(nt=nt)
         self.charge: wpimath.units.ampere_hours = DrainingBatterySim.FULL_BATTERY_AMP_HOURS if usable_amp_hours is None else usable_amp_hours
 
-    def update_sim(self, current_draw: wpimath.units.amperes, tm_diff: float):
-        spentCharge: wpimath.units.ampere_hours = current_draw * (tm_diff / 60 / 60)
+    def iterate(self, current_draw: wpimath.units.amperes, dt: float):
+        spentCharge: wpimath.units.ampere_hours = current_draw * (dt / 60 / 60)
         self.currentDraw = current_draw
         self.charge = max(0, self.charge - spentCharge)
-        super().update_sim(current_draw, tm_diff)
+        super().iterate(current_draw, dt)
 
-    def nominal_voltage(self) -> wpimath.units.volts:
+    def nominalVoltage(self) -> wpimath.units.volts:
         return utils.remap(
             self.charge,
             (DrainingBatterySim.FULL_BATTERY_AMP_HOURS, 0),
             (DrainingBatterySim.MAX_OUTPUT_VOLTS, DrainingBatterySim.MIN_OUTPUT_VOLTS),
         )
 
-    def output_voltage(self) -> wpimath.units.volts:
-        return BatterySim.calculate(self.nominal_voltage(), 0.020, currents=[self.currentDraw])
+    def outputVoltage(self) -> wpimath.units.volts:
+        return BatterySim.calculate(self.nominalVoltage(), 0.020, currents=[self.currentDraw])
 
 
 class SparkMaxSim2175(SparkMaxSim):
     """
-    A wrapper around rev's SparkMaxSim that automatically performs
-    NetworkTables logging of sim-specific state.
-
-    Also, the existing SparkMaxSim class seems to have a bug where the
-    getMotorCurrent() method returns NaN. I do not know why. It would be good
-    to figure this out. But for now we override it with our own custom logic.
+    A wrapper around rev's SparkMaxSim that automatically performs torque
+    calculations and logs sim-specific state to NetworkTables. Also overrides
+    electrical-current calculations on iterate.
     """
 
     def __init__(
@@ -252,20 +289,52 @@ class SparkMaxSim2175(SparkMaxSim):
         *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ) -> None:
         super().__init__(sparkMax, motor)
+        self.realSpark = sparkMax
         self.encoder = self.getRelativeEncoderSim()
         self.motor = motor
-        self.lastVbus: float = 0
 
+        self.lastCurrent: wpimath.units.amperes = 0
+        self.lastTorque: wpimath.units.newton_meters = 0
+
+        # TODO: Remove one of these velocity topics
         self.velocityTopic = nt.getFloatTopic("SimVelocity")
+        self.encoderVelocityTopic = nt.getFloatTopic("SimVelocityEncoder")
         self.currentTopic = nt.getFloatTopic("SimCurrent")
+        self.torqueTopic = nt.getFloatTopic("Torque")
 
     def iterate(self, velocity, vbus, dt):
         super().iterate(velocity, vbus, dt)
-        self.lastVbus = float(vbus)
-        self.velocityTopic.set(self.encoder.getVelocity())
+
+        # Warnings about SupportsFloat vs. float are annoying.
+        velocity = float(velocity)
+        vbus = float(vbus)
+        dt = float(dt)
+
+        # Compute output current & torque. In principle it seems like maybe we
+        # should be able to just call getMotorCurrent(), but this doesn't even
+        # seem to take coast mode into account, so overriding the current-
+        # calculation logic seems prudent.
+        outputDutyCycle = self.getAppliedOutput()
+        isCoast = self.realSpark.configAccessor.getIdleMode() == rev.SparkBaseConfig.IdleMode.kCoast
+        if outputDutyCycle == 0 and isCoast:
+            outputCurrent = 0
+        else:
+            outputCurrent = self.motor.current(self.velocityRadians(velocity), outputDutyCycle * vbus)
+        outputTorque = self.motor.torque(outputCurrent)
+        
+        self.lastCurrent = outputCurrent
+        self.lastTorque = outputTorque
+
+        self.velocityTopic.set(velocity)
+        self.encoderVelocityTopic.set(self.encoder.getVelocity())
         self.currentTopic.set(self.getMotorCurrent())
+        self.torqueTopic.set(outputTorque)
+
+    def velocityRadians(self, velocityConverted: float) -> wpimath.units.radians_per_second:
+        return velocityConverted / self.encoder.getVelocityConversionFactor() * (2 * math.pi / 60)
 
     def getMotorCurrent(self) -> wpimath.units.amperes:
-        speed: wpimath.units.radians_per_second = abs(self.encoder.getVelocity() / self.encoder.getVelocityConversionFactor()) * (2 * math.pi / 60)
-        current = self.motor.current(speed, self.lastVbus * self.getAppliedOutput())
-        return current
+        return self.lastCurrent
+
+    def getMotorTorque(self) -> wpimath.units.newton_meters:
+        return self.lastTorque
