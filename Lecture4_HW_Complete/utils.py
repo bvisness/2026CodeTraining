@@ -230,6 +230,9 @@ class Vector2d(Generic[Unit]):
         
         :returns: The angle of the vector
         """
+        # WPILib screams at you in this extremely obvious case.
+        if self.x == 0 and self.y == 0:
+            return Rotation2d()
         return self.translation.angle()
 
     def norm(self) -> Unit:

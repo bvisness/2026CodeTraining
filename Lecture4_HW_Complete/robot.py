@@ -1,4 +1,3 @@
-# import rev
 import wpilib
 import wpimath
 
@@ -9,7 +8,6 @@ class MyRobot(wpilib.TimedRobot):
     def robotInit(self):
         self.drivetrain = Drivetrain()
         self.gamepad = wpilib.Joystick(0)
-        # self.testMotor = rev.SparkMax()
 
     def robotPeriodic(self):
         self.drivetrain.periodic()
@@ -19,5 +17,3 @@ class MyRobot(wpilib.TimedRobot):
         ySpeed = wpimath.applyDeadband(-self.gamepad.getRawAxis(0), 0.1) * 2
         turnSpeed = wpimath.applyDeadband(-self.gamepad.getRawAxis(4), 0.1) * 2
         self.drivetrain.drive(xSpeed, ySpeed, turnSpeed)
-
-    # def testPeriodic(self):

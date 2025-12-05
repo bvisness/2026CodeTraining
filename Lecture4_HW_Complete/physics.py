@@ -42,6 +42,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # NetworkTables topics
         simFolder = ntutil.folder("Sim")
         self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
+        self.vbusTopic = simFolder.getFloatTopic("VBus")
 
         # Physics device setup
         self.robot = robot
@@ -55,6 +56,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
 
     def update_sim(self, now: float, tm_diff: float):
         vbus = RobotController.getBatteryVoltage()
+        self.vbusTopic.set(vbus)
 
         self.drivetrain.iterate(vbus, tm_diff)
 
@@ -204,12 +206,14 @@ class SwerveModuleSim:
         self.realModule = module
         self.driveSparkSim = SparkMaxSim2175(
             module.driveMotor,
-            DCMotor.NEO(1).withReduction(constants.driveMotorReduction),
+            DCMotor.NEO(1),
+            gearReduction=constants.driveMotorReduction,
             nt=nt.folder("DriveMotor"),
         )
         self.steerSparkSim = SparkMaxSim2175(
             module.steerMotor,
-            DCMotor.NEO550(1).withReduction(constants.steerMotorReduction),
+            DCMotor.NEO550(1),
+            gearReduction=constants.steerMotorReduction,
             nt=nt.folder("SteerMotor"),
         )
 
@@ -337,17 +341,21 @@ class SparkMaxSim2175(SparkMaxSim):
         self,
         sparkMax: SparkMax,
         motor: DCMotor,
-        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        *, gearReduction: float = 1,
+        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ) -> None:
         super().__init__(sparkMax, motor)
         self.realSpark = sparkMax
         self.encoder = self.getRelativeEncoderSim()
-        self.motor = motor
+        self.gearboxedMotor = motor.withReduction(gearReduction)
+        self.gearReduction = gearReduction
 
         self.lastCurrent: wpimath.units.amperes = 0
         self.lastTorque: wpimath.units.newton_meters = 0
 
+        self.dutyCycleTopic = nt.getFloatTopic("DutyCycle")
         self.velocityTopic = nt.getFloatTopic("SimVelocity")
+        self.gearboxVelocityRadiansTopic = nt.getFloatTopic("SimGearboxVelocityRadians")
         self.currentTopic = nt.getFloatTopic("SimCurrent")
         self.torqueTopic = nt.getFloatTopic("Torque")
 
@@ -368,18 +376,30 @@ class SparkMaxSim2175(SparkMaxSim):
         if outputDutyCycle == 0 and isCoast:
             outputCurrent = 0
         else:
-            outputCurrent = self.motor.current(self.velocityRadians(velocity), outputDutyCycle * vbus)
-        outputTorque = self.motor.torque(outputCurrent)
+            outputCurrent = self.gearboxedMotor.current(self.gearboxVelocityRadians(velocity), outputDutyCycle * vbus)
+        outputTorque = self.gearboxedMotor.torque(outputCurrent)
         
         self.lastCurrent = outputCurrent
         self.lastTorque = outputTorque
 
+        self.dutyCycleTopic.set(outputDutyCycle)
         self.velocityTopic.set(velocity)
-        self.currentTopic.set(self.getMotorCurrent())
+        self.gearboxVelocityRadiansTopic.set(self.gearboxVelocityRadians(velocity))
+        self.currentTopic.set(outputCurrent)
         self.torqueTopic.set(outputTorque)
 
-    def velocityRadians(self, velocityConverted: float) -> wpimath.units.radians_per_second:
-        return velocityConverted / self.encoder.getVelocityConversionFactor() * (2 * math.pi / 60)
+    def gearboxVelocityRadians(self, velocityConverted: float) -> wpimath.units.radians_per_second:
+        """
+        Gets the velocity in radians per second of the SPARK MAX's motor,
+        *after* gear reduction is applied. This is because
+        DCMotor.withReduction() "bakes in" the gear reduction. Conceptually,
+        you should think of the new "with reduction" motor as a new black-box
+        device with its own free speed. And since this is the object we use in
+        order to compute current and torque, the velocity that we pass it (in
+        rad/sec) must therefore be the speed of the gearbox's output shaft.
+        """
+        motorRadPerSec = velocityConverted / self.encoder.getVelocityConversionFactor() * (2 * math.pi / 60)
+        return motorRadPerSec / self.gearReduction
 
     def getMotorCurrent(self) -> wpimath.units.amperes:
         return self.lastCurrent

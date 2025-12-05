@@ -18,10 +18,7 @@ driveMotorConfig.encoder.velocityConversionFactor(
 )
 # Use PIDF for control with the built-in NEO encoder for feedback.
 driveMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kPrimaryEncoder)
-if RobotBase.isSimulation():
-    driveMotorConfig.closedLoop.pidf(10, 0.1, 0, 0)
-else:
-    driveMotorConfig.closedLoop.pidf(0, 0, 0, 1 / constants.maxSpeed)
+driveMotorConfig.closedLoop.pidf(0, 0, 0, 1 / constants.maxSpeed)
 
 steerMotorConfig = rev.SparkMaxConfig()
 steerMotorConfig.smartCurrentLimit(40)
@@ -37,7 +34,7 @@ steerMotorConfig.absoluteEncoder.velocityConversionFactor(2 * math.pi / 60)
 # controller works in angles, which wrap around, we enable position wrapping.
 steerMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kAbsoluteEncoder)
 if RobotBase.isSimulation():
-    steerMotorConfig.closedLoop.pid(0.2, 0, 0)
+    steerMotorConfig.closedLoop.pid(0.1, 0, 0)
 else:
     steerMotorConfig.closedLoop.pid(1, 0, 0)
 steerMotorConfig.closedLoop.positionWrappingEnabled(True)
