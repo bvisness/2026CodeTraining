@@ -1,4 +1,5 @@
 from __future__ import annotations 
+import math
 from typing import Generic, SupportsInt, TypeVar
 import typing
 from wpimath.geometry import Rotation2d, Translation2d
@@ -75,7 +76,7 @@ def sign_or_zero(v: float) -> float:
     else:
         return sign(v)
 
-Unit = TypeVar("Unit", bound=float)
+Unit = TypeVar("Unit", bound=float, default=float)
 
 class Vector2d(Generic[Unit]):
     """
@@ -101,16 +102,6 @@ class Vector2d(Generic[Unit]):
         """
         ...
 
-    @typing.overload
-    def __init__(self, magnitude: Unit, angle: Rotation2d):
-        """
-        Constructs a Vector2d with the provided magnitude and angle. This is
-        essentially converting from polar coordinates to Cartesian coordinates.
-        
-        :param magnitude: The length of the vector.
-        :param angle:     The angle between the x-axis and the vector.
-        """
-
     def __init__(self, arg0 = None, arg1 = None): # type: ignore
         if arg0 is None and arg1 is None:
             self.translation = Translation2d()
@@ -124,6 +115,10 @@ class Vector2d(Generic[Unit]):
     @staticmethod
     def fromTranslation(t: Translation2d) -> Vector2d[wpimath.units.meters]:
         return Vector2d[wpimath.units.meters].fromTranslationRaw(t)
+
+    @classmethod
+    def fromMagnitudeAndDirection(cls, m: Unit, dir: Rotation2d) -> Vector2d[Unit]:
+        return cls(m * dir.cos(), m * dir.sin()) # type: ignore
 
     def toTranslation(self) -> Translation2d:
         """Return the underlying WPILib Translation2d object."""
@@ -280,7 +275,7 @@ class Vector2d(Generic[Unit]):
         
         :returns: The new rotated vector.
         """
-        return Vector2d.fromTranslationRaw(self.translation.rotateBy(rot))
+        return Vector2d[Unit].fromTranslationRaw(self.translation.rotateBy(rot))
 
     @property
     def x(self) -> Unit:

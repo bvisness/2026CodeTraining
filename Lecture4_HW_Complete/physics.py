@@ -6,7 +6,7 @@ import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
 import rev
 from rev import SparkMax, SparkMaxSim
-from wpilib import DriverStation, RobotController
+from wpilib import DriverStation, RobotBase, RobotController
 from wpilib.simulation import BatterySim, RoboRioSim
 import wpimath
 import wpimath.units
@@ -31,9 +31,14 @@ from utils import Vector2d
 # simulator. You should NOT need to touch it for the homework.
 # =============================================================================
 
+globalRobot: MyRobot
+
 # See https://robotpy.readthedocs.io/projects/pyfrc/en/stable/physics.html
 class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
     def __init__(self, physics_controller: PhysicsInterface, robot: MyRobot):
+        global globalRobot
+        globalRobot = robot
+
         # NetworkTables topics
         simFolder = ntutil.folder("Sim")
         self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
@@ -42,7 +47,11 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         self.robot = robot
         self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
         # self.battery = DrainingBatterySim(nt=simFolder.folder("Battery"))
-        self.drivetrain = DrivetrainSim(robot.drivetrain, nt=simFolder.folder("Drivetrain"))
+        self.drivetrain = DrivetrainSim(
+            robot.drivetrain,
+            mass=constants.robotMass,
+            nt=simFolder.folder("Drivetrain"),
+        )
 
     def update_sim(self, now: float, tm_diff: float):
         vbus = RobotController.getBatteryVoltage()
@@ -87,22 +96,40 @@ class DrivetrainSim:
         # navXDevice = hal.simulation.getSimDeviceHandle(f"navX-Sensor[{drivetrain.gyro.getPort()}]")
         # self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
 
-        self.pose = Pose2d()
+        self.pose = Pose2d(Translation2d(10, 5), Rotation2d())
+        self.mass = mass
         self.velocity = Vector2d[wpimath.units.meters_per_second]()
         self.angularVelocity: wpimath.units.radians_per_second = 0
-        self.moduleTranslationSpeeds: list[wpimath.units.meters_per_second] = [0, 0, 0, 0]
+        self.moduleVelocities: list[Vector2d[wpimath.units.meters_per_second]] = [Vector2d(), Vector2d(), Vector2d(), Vector2d()]
 
-        self.moduleTranslationSpeedsTopic = nt.getStructArrayTopic("ModuleTranslationSpeeds", SwerveModuleState)
+        self.netForceTopic = nt.getStructTopic("NetForce", Translation2d)
+        self.netTorqueTopic = nt.getFloatTopic("NetTorque")
+        self.netForceVisualTopic = nt.getStructTopic("NetForceVisual", Translation2d)
+        self.moduleFieldAnglesVisualTopic = nt.getStructArrayTopic("ModuleFieldAnglesVisual", SwerveModuleState)
+        self.moduleVelocitiesTopic = nt.getStructArrayTopic("ModuleVelocities", Translation2d)
+        self.moduleVelocitiesVisualTopic = nt.getStructArrayTopic("ModuleVelocitiesVisual", SwerveModuleState)
+        self.moduleForcesTopic = nt.getStructArrayTopic("ModuleForces", Translation2d)
+        self.moduleForcesVisualTopic = nt.getStructArrayTopic("ModuleForcesVisual", SwerveModuleState)
 
     def iterate(self, vbus: float, dt: float):
         modulePosesBefore = self.getModulePoses(self.pose)
 
-        for module, moduleSpeed in zip(self.modules, self.moduleTranslationSpeeds):
+        for module, moduleSpeed in zip(self.modules, self.moduleVelocities):
             module.iterate(moduleSpeed, vbus, dt)
         moduleStates = self.getModuleStates()
 
         moduleFieldAngles = [self.pose.rotation() + m.angle for m in moduleStates]        
-        moduleForceVectors = [Vector2d(m.getDriveForce(), angle) for m, angle in zip(self.modules, moduleFieldAngles)]
+        moduleForceVectors = [Vector2d.fromMagnitudeAndDirection(m.getDriveForce(), angle) for m, angle in zip(self.modules, moduleFieldAngles)]
+        self.moduleFieldAnglesVisualTopic.set([
+            # TODO: Offset by robot angle
+            SwerveModuleState(1, angle) for angle in moduleFieldAngles
+        ])
+        self.moduleForcesTopic.set([fv.toTranslation() for fv in moduleForceVectors])
+        self.moduleForcesVisualTopic.set([
+            # TODO: Probably needs to be offset by robot angle.
+            SwerveModuleState(fv.norm(), fv.angle())
+            for fv in moduleForceVectors
+        ])
 
         # Compute net force and torque on the robot by applying all four forces
         # at the appropriate offsets. See the following link (sec. 2.7) for more
@@ -113,21 +140,26 @@ class DrivetrainSim:
             modOffsetField = Vector2d.fromTranslation(modPose.translation() - self.pose.translation())
             netForce += fv
             netTorque += modOffsetField.cross(fv)
+        self.netForceTopic.set(netForce.toTranslation())
+        self.netTorqueTopic.set(netTorque)
+        self.netForceVisualTopic.set(self.pose.translation() + netForce.toTranslation())
 
-        # TODO: Apply net force and torque to rigid body
+        accleration: Vector2d[wpimath.units.meters_per_second_squared] = netForce / self.mass
+        self.velocity += accleration * dt
+        newPosition = self.pose.translation() + (self.velocity * dt).toTranslation()
 
-        chassisSpeeds = self.realDrivetrain.desiredChassisSpeedsTopic.get()
-        self.pose = self.pose.exp(chassisSpeeds.toTwist2d(dt))
-
+        self.pose = Pose2d(newPosition, self.pose.rotation())
         modulePosesAfter = self.getModulePoses(self.pose)
         
-        self.moduleTranslationSpeeds = [
-            (after - before).translation().norm() / dt
+        self.moduleVelocities = [
+            Vector2d.fromTranslation(after.translation() - before.translation()) / dt
             for before, after in zip(modulePosesBefore, modulePosesAfter)
         ]
-        self.moduleTranslationSpeedsTopic.set([
-            SwerveModuleState(speed, moduleState.angle)
-            for speed, moduleState in zip(self.moduleTranslationSpeeds, moduleStates)
+        self.moduleVelocitiesTopic.set([v.toTranslation() for v in self.moduleVelocities])
+        self.moduleVelocitiesVisualTopic.set([
+            # TODO: This is probably wrong because it probably needs to be offset by the robot's rotation.
+            SwerveModuleState(v.norm(), v.angle())
+            for v in self.moduleVelocities
         ])
 
         # # Update the simulated gyro. For reasons unknown, the navX uses
@@ -205,13 +237,16 @@ class SwerveModuleSim:
 
     def iterate(
         self,
-        moduleTranslationSpeed: wpimath.units.meters_per_second,
+        moduleVelocity: Vector2d[wpimath.units.meters_per_second],
         vbus: float,
         dt: float,
     ):
         # Iterate motor controllers
-        self.driveSparkSim.iterate(moduleTranslationSpeed, vbus, dt)
-        self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
+        driveForwardDir = Vector2d.fromMagnitudeAndDirection(1, self.getState().angle)
+        driveVelocity: wpimath.units.meters_per_second = moduleVelocity.dot(driveForwardDir)
+        self.driveSparkSim.iterate(driveVelocity, vbus, dt)
+        if globalRobot.isTest():
+            self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
 
         # Update steer physics for next tick
         # TODO: Seems like the torque calculation here is going absolutely bonkers.
@@ -312,9 +347,7 @@ class SparkMaxSim2175(SparkMaxSim):
         self.lastCurrent: wpimath.units.amperes = 0
         self.lastTorque: wpimath.units.newton_meters = 0
 
-        # TODO: Remove one of these velocity topics
         self.velocityTopic = nt.getFloatTopic("SimVelocity")
-        self.encoderVelocityTopic = nt.getFloatTopic("SimVelocityEncoder")
         self.currentTopic = nt.getFloatTopic("SimCurrent")
         self.torqueTopic = nt.getFloatTopic("Torque")
 
@@ -342,7 +375,6 @@ class SparkMaxSim2175(SparkMaxSim):
         self.lastTorque = outputTorque
 
         self.velocityTopic.set(velocity)
-        self.encoderVelocityTopic.set(self.encoder.getVelocity())
         self.currentTopic.set(self.getMotorCurrent())
         self.torqueTopic.set(outputTorque)
 

@@ -7,8 +7,11 @@ import wpimath.units
 # - REV NEO data sheet: https://www.revrobotics.com/content/docs/REV-21-1650-DS.pdf
 # - REV 3in MAXSwerve product page: https://www.revrobotics.com/rev-21-3005/
 
+robotMass = wpimath.units.lbsToKilograms(100)
+"""Total mass of the entire robot."""
+
 wheelDiameter = wpimath.units.inchesToMeters(3)
-"""Diameter of a drive wheel. Unit: m."""
+"""Diameter of a drive wheel."""
 
 wheelDistanceFromCenter = wpimath.units.inchesToMeters(12.5)
 """The distance along x or y from the center of the robot to a swerve wheel."""
