@@ -128,10 +128,13 @@ class DrivetrainSim:
         moduleDragForces: list[Vector2d[wpimath.units.newtons]] = []
         for angle, velocity in zip(moduleFieldAngles, self.moduleFieldVelocities):
             direction = Vector2d.fromMagnitudeAndDirection(1, angle)
-            if velocity.norm() > 0.05 and direction.dot(velocity.normalized()) < math.cos(wpimath.units.degreesToRadians(10)):
-                dragForce = self.slipFriction
-            else:
-                dragForce = 0
+            alignmentFactor = utils.clamp(utils.remap(
+                direction.dot(velocity.normalized()),
+                (1, math.cos(wpimath.units.degreesToRadians(20))),
+                (0, 1),
+            ), 0, 1)
+            velocityFactor = utils.remap(velocity.norm(), (0, 0.5), (0, 1))
+            dragForce = utils.lerp(0, self.slipFriction, min(alignmentFactor, velocityFactor))
             moduleDragForces.append(-Vector2d.fromMagnitudeAndDirection(dragForce, velocity.angle()))
 
         # Compute net force and torque on the robot by applying all four forces
