@@ -31,14 +31,9 @@ from utils import Vector2d
 # simulator. You should NOT need to touch it for the homework.
 # =============================================================================
 
-globalRobot: MyRobot
-
 # See https://robotpy.readthedocs.io/projects/pyfrc/en/stable/physics.html
 class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
     def __init__(self, physics_controller: PhysicsInterface, robot: MyRobot):
-        global globalRobot
-        globalRobot = robot
-
         # NetworkTables topics
         simFolder = ntutil.folder("Sim")
         self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
@@ -105,8 +100,8 @@ class DrivetrainSim:
         self.moduleVelocities: list[Vector2d[wpimath.units.meters_per_second]] = [Vector2d(), Vector2d(), Vector2d(), Vector2d()]
 
         self.netForceTopic = nt.getStructTopic("NetForce", Translation2d)
-        self.netTorqueTopic = nt.getFloatTopic("NetTorque")
         self.netForceVisualTopic = nt.getStructTopic("NetForceVisual", Translation2d)
+        self.netTorqueTopic = nt.getFloatTopic("NetTorque")
         self.moduleFieldAnglesVisualTopic = nt.getStructArrayTopic("ModuleFieldAnglesVisual", SwerveModuleState)
         self.moduleVelocitiesTopic = nt.getStructArrayTopic("ModuleVelocities", Translation2d)
         self.moduleVelocitiesVisualTopic = nt.getStructArrayTopic("ModuleVelocitiesVisual", SwerveModuleState)
@@ -129,7 +124,7 @@ class DrivetrainSim:
         self.moduleForcesTopic.set([fv.toTranslation() for fv in moduleForceVectors])
         self.moduleForcesVisualTopic.set([
             # TODO: Probably needs to be offset by robot angle.
-            SwerveModuleState(fv.norm(), fv.angle())
+            SwerveModuleState(fv.norm() / 10, fv.angle())
             for fv in moduleForceVectors
         ])
 
@@ -144,7 +139,7 @@ class DrivetrainSim:
             netTorque += modOffsetField.cross(fv)
         self.netForceTopic.set(netForce.toTranslation())
         self.netTorqueTopic.set(netTorque)
-        self.netForceVisualTopic.set(self.pose.translation() + netForce.toTranslation())
+        self.netForceVisualTopic.set(self.pose.translation() + (netForce.toTranslation() / 10))
 
         accleration: Vector2d[wpimath.units.meters_per_second_squared] = netForce / self.mass
         self.velocity += accleration * dt
@@ -222,16 +217,21 @@ class SwerveModuleSim:
             # "diameters" of this definitely not wheel-shaped thing, but it
             # shouldn't really matter.
             momentOfInertia=moiForWheel(
-                mass=1,
+                mass=2,
                 outerDiameter=wpimath.units.inchesToMeters(5),
                 innerDiameter=wpimath.units.inchesToMeters(0.5),
             ),
+
             # Rough estimate for scrub friction (from ChatGPT with number
             # ranges sanity-checked): T = kF * N * A, where T = friction
             # torque (Newton-meters), kF = coefficient of friction, N = normal
             # force (Newtons), A = contact area (meters^2). Plausible values
-            # for all result in plausible-enough results, I guess.
-            friction=0.1 * 100 * 0.05,
+            # for all result in plausible-enough results, I guess?
+            # friction=0.3 * 110 * 0.05,
+
+            # Or we could just throw in a number that feels like it works.
+            friction=6,
+
             nt=nt.folder("SteerPhysics"),
         )
 
@@ -249,8 +249,7 @@ class SwerveModuleSim:
         driveForwardDir = Vector2d.fromMagnitudeAndDirection(1, self.getState().angle)
         driveVelocity: wpimath.units.meters_per_second = moduleVelocity.dot(driveForwardDir)
         self.driveSparkSim.iterate(driveVelocity, vbus, dt)
-        if globalRobot.isTest():
-            self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
+        self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
 
         # Update steer physics for next tick
         # TODO: Seems like the torque calculation here is going absolutely bonkers.

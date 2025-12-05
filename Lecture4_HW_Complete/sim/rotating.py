@@ -13,7 +13,7 @@ class RotatingObject:
     def __init__(
         self,
         *, momentOfInertia: wpimath.units.kilogram_square_meters,
-        viscousDragCoefficient = 0.001,
+        viscousDragCoefficient = 0.001, # in Nm/(rad/s) (Newton-meters per (radian per second))
         friction: wpimath.units.newton_meters = 0.01,
         nt: ntutil._NTFolder = ntutil._DummyNTFolder()
     ):
@@ -35,20 +35,19 @@ class RotatingObject:
         frictionTorque = utils.sign_or_zero(-self.velocity) * self.friction # already Nm
         totalTorque = inputTorque + viscousDragTorque + frictionTorque
 
-        # Since friction is a constant force, naively applying it at low speeds
-        # can cause us to reverse direction. We stomp on this whole situation
-        # by clamping the total torque so that we never reverse direction in a
-        # single tick.
+        # Torque -> accleration -> updated velocity.
         #
-        # TODO: This is still sort of wrong. We're not going to land exactly on
-        # zero, but then we will ignore legitimate torques close to zero.
-        torqueLimit = self.moi * -self.velocity / dt
-        if totalTorque < torqueLimit < 0 or 0 < torqueLimit < totalTorque:
-            totalTorque = torqueLimit
-
-        # Torque -> accleration -> updated velocity
+        # Since friction is a constant force, naively applying it at low speeds
+        # can cause us to reverse direction. We hack around this problem with a
+        # simple rule: the velocity can never change sign in a single tick. If
+        # this happens, we just set the velocity to zero. If there is still a
+        # torque applied, it will take effect one tick late.
         angularAcceleration = totalTorque / self.moi # rad/(s^2)
-        self.velocity += angularAcceleration * dt
+        dVelocity = angularAcceleration * dt
+        if self.velocity != 0 and utils.sign(self.velocity + dVelocity) != utils.sign(self.velocity):
+            self.velocity = 0
+        else:
+            self.velocity += dVelocity
 
         self.inputTorqueTopic.set(inputTorque)
         self.viscousTorqueTopic.set(viscousDragTorque)

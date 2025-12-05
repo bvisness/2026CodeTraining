@@ -10,6 +10,7 @@ import constants
 
 driveMotorConfig = rev.SparkMaxConfig()
 driveMotorConfig.smartCurrentLimit(40)
+driveMotorConfig.setIdleMode(rev.SparkBaseConfig.IdleMode.kBrake)
 # Convert position from rotations to m
 driveMotorConfig.encoder.positionConversionFactor(math.pi * constants.wheelDiameter / constants.driveMotorReduction)
 # Convert velocity from RPM to m/s
@@ -34,7 +35,7 @@ steerMotorConfig.absoluteEncoder.velocityConversionFactor(2 * math.pi / 60)
 # controller works in angles, which wrap around, we enable position wrapping.
 steerMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kAbsoluteEncoder)
 if RobotBase.isSimulation():
-    steerMotorConfig.closedLoop.pid(0.1, 0, 0)
+    steerMotorConfig.closedLoop.pid(0.4, 0, 0)
 else:
     steerMotorConfig.closedLoop.pid(1, 0, 0)
 steerMotorConfig.closedLoop.positionWrappingEnabled(True)
