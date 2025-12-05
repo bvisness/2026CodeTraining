@@ -97,11 +97,13 @@ class DrivetrainSim:
 
         self.pose = Pose2d(Translation2d(10, 5), Rotation2d())
         self.mass = mass
+        self.moi = moiForWheel(mass, wpimath.units.inchesToMeters(34), 0) # assume the robot is a flat disk...
         self.slipFriction = slipFriction
         self.velocity = Vector2d[wpimath.units.meters_per_second]()
         self.angularVelocity: wpimath.units.radians_per_second = 0
         self.moduleFieldVelocities: list[Vector2d[wpimath.units.meters_per_second]] = [Vector2d(), Vector2d(), Vector2d(), Vector2d()]
 
+        self.velocityVisualTopic = nt.getStructTopic("VelocityVisual", ChassisSpeeds)
         self.netForceTopic = nt.getStructTopic("NetForce", Translation2d)
         self.netForceVisualTopic = nt.getStructTopic("NetForceVisual", Translation2d)
         self.netTorqueTopic = nt.getFloatTopic("NetTorque")
@@ -117,7 +119,8 @@ class DrivetrainSim:
         modulePosesBefore = self.getModulePoses(self.pose)
 
         for module, moduleVelocity in zip(self.modules, self.moduleFieldVelocities):
-            module.iterate(moduleVelocity, vbus, dt)
+            moduleVelocityRobot = moduleVelocity.rotateBy(-self.pose.rotation())
+            module.iterate(moduleVelocityRobot, vbus, dt)
         moduleStates = self.getModuleStates()
 
         moduleFieldAngles = [self.pose.rotation() + m.angle for m in moduleStates]        
@@ -144,10 +147,14 @@ class DrivetrainSim:
             netTorque += modOffsetField.cross(fd)
 
         accleration: Vector2d[wpimath.units.meters_per_second_squared] = netForce / self.mass
-        self.velocity += accleration * dt
-        newPosition = self.pose.translation() + (self.velocity * dt).toTranslation()
+        angularAcceleration = netTorque / self.moi
 
-        self.pose = Pose2d(newPosition, self.pose.rotation())
+        self.velocity += accleration * dt
+        self.angularVelocity += angularAcceleration * dt
+        newPosition = self.pose.translation() + (self.velocity * dt).toTranslation()
+        newRotation = self.pose.rotation().rotateBy(Rotation2d(self.angularVelocity * dt))
+
+        self.pose = Pose2d(newPosition, newRotation)
         modulePosesAfter = self.getModulePoses(self.pose)
         
         self.moduleFieldVelocities = [
@@ -156,25 +163,23 @@ class DrivetrainSim:
         ]
 
         # NetworkTables values
+        self.velocityVisualTopic.set(ChassisSpeeds(self.velocity.x, self.velocity.y, self.angularVelocity))
         self.moduleFieldAnglesVisualTopic.set([
-            # TODO: Offset by robot angle
-            SwerveModuleState(1, angle) for angle in moduleFieldAngles
+            SwerveModuleState(1, angle - self.pose.rotation()) for angle in moduleFieldAngles
         ])
         self.moduleForcesTopic.set([fv.toTranslation() for fv in moduleDriveForces])
         self.moduleForcesVisualTopic.set([
-            # TODO: Probably needs to be offset by robot angle.
-            SwerveModuleState(fv.norm() / 10, fv.angle())
+            SwerveModuleState(fv.norm() / 10, fv.angle() - self.pose.rotation())
             for fv in moduleDriveForces
         ])
         self.moduleDragForcesTopic.set([d.toTranslation() for d in moduleDragForces])
         self.moduleDragForcesVisualTopic.set([
-            SwerveModuleState(df.norm() / 10, df.angle())
+            SwerveModuleState(df.norm() / 10, df.angle() - self.pose.rotation())
             for df in moduleDragForces
         ])
         self.moduleVelocitiesTopic.set([v.toTranslation() for v in self.moduleFieldVelocities])
         self.moduleVelocitiesVisualTopic.set([
-            # TODO: This is probably wrong because it probably needs to be offset by the robot's rotation.
-            SwerveModuleState(v.norm(), v.angle())
+            SwerveModuleState(v.norm(), v.angle() - self.pose.rotation())
             for v in self.moduleFieldVelocities
         ])
         self.netForceTopic.set(netForce.toTranslation())
@@ -263,13 +268,13 @@ class SwerveModuleSim:
 
     def iterate(
         self,
-        moduleVelocity: Vector2d[wpimath.units.meters_per_second],
+        moduleVelocityRobot: Vector2d[wpimath.units.meters_per_second],
         vbus: float,
         dt: float,
     ):
         # Iterate motor controllers
         driveForwardDir = Vector2d.fromMagnitudeAndDirection(1, self.getState().angle)
-        driveVelocity: wpimath.units.meters_per_second = moduleVelocity.dot(driveForwardDir)
+        driveVelocity: wpimath.units.meters_per_second = max(0, moduleVelocityRobot.dot(driveForwardDir))
         self.driveSparkSim.iterate(driveVelocity, vbus, dt)
         self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
 
