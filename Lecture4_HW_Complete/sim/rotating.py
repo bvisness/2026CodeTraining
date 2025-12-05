@@ -39,6 +39,9 @@ class RotatingObject:
         # can cause us to reverse direction. We stomp on this whole situation
         # by clamping the total torque so that we never reverse direction in a
         # single tick.
+        #
+        # TODO: This is still sort of wrong. We're not going to land exactly on
+        # zero, but then we will ignore legitimate torques close to zero.
         torqueLimit = self.moi * -self.velocity / dt
         if totalTorque < torqueLimit < 0 or 0 < torqueLimit < totalTorque:
             totalTorque = torqueLimit

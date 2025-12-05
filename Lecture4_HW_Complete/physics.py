@@ -23,6 +23,7 @@ from robot import MyRobot
 from sim.rotating import RotatingObject, moiForWheel
 from subsystems.drivetrain import Drivetrain
 import utils
+from utils import Vector2d
 
 
 # =============================================================================
@@ -65,7 +66,9 @@ class DrivetrainSim:
     def __init__(
         self,
         drivetrain: Drivetrain,
-        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        *, mass: wpimath.units.kilograms,
+        centerOfMass = Translation2d(),
+        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ):
         self.realDrivetrain = drivetrain
         self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (
@@ -85,6 +88,8 @@ class DrivetrainSim:
         # self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
 
         self.pose = Pose2d()
+        self.velocity = Vector2d[wpimath.units.meters_per_second]()
+        self.angularVelocity: wpimath.units.radians_per_second = 0
         self.moduleTranslationSpeeds: list[wpimath.units.meters_per_second] = [0, 0, 0, 0]
 
         self.moduleTranslationSpeedsTopic = nt.getStructArrayTopic("ModuleTranslationSpeeds", SwerveModuleState)
@@ -95,9 +100,22 @@ class DrivetrainSim:
         for module, moduleSpeed in zip(self.modules, self.moduleTranslationSpeeds):
             module.iterate(moduleSpeed, vbus, dt)
         moduleStates = self.getModuleStates()
-        # TODO: Get swerve pose from actual forces / torques, not just applying
-        # the desired chassisSpeeds.
-        # chassisSpeeds = self.kinematics.toChassisSpeeds(moduleStates)
+
+        moduleFieldAngles = [self.pose.rotation() + m.angle for m in moduleStates]        
+        moduleForceVectors = [Vector2d(m.getDriveForce(), angle) for m, angle in zip(self.modules, moduleFieldAngles)]
+
+        # Compute net force and torque on the robot by applying all four forces
+        # at the appropriate offsets. See the following link (sec. 2.7) for more
+        # background: https://www.cs.cmu.edu/~baraff/sigcourse/notesd1.pdf
+        netForce = Vector2d[wpimath.units.newtons]()
+        netTorque: wpimath.units.newton_meters = 0
+        for fv, modPose in zip(moduleForceVectors, modulePosesBefore):
+            modOffsetField = Vector2d.fromTranslation(modPose.translation() - self.pose.translation())
+            netForce += fv
+            netTorque += modOffsetField.cross(fv)
+
+        # TODO: Apply net force and torque to rigid body
+
         chassisSpeeds = self.realDrivetrain.desiredChassisSpeedsTopic.get()
         self.pose = self.pose.exp(chassisSpeeds.toTwist2d(dt))
 
@@ -117,12 +135,7 @@ class DrivetrainSim:
         # self.navXAngleSim.set(-self.pose.rotation().degrees())
 
     def getModuleStates(self):
-        return (
-            self.modules[0].getState(),
-            self.modules[1].getState(),
-            self.modules[2].getState(),
-            self.modules[3].getState(),
-        )
+        return [m.getState() for m in self.modules]
 
     def getModulePoses(self, pose: Pose2d):
         return [pose.transformBy(Transform2d(t, Rotation2d())) for t in self.modulePositions]
@@ -206,6 +219,9 @@ class SwerveModuleSim:
 
     def getState(self) -> SwerveModuleState:
         return self.realModule.getActualState()
+    
+    def getDriveForce(self) -> wpimath.units.newtons:
+        return self.driveSparkSim.getMotorTorque() / (constants.wheelDiameter / 2)
 
     def getCurrentDraw(self) -> wpimath.units.amperes:
         return self.driveSparkSim.getMotorCurrent() + self.steerSparkSim.getMotorCurrent()
