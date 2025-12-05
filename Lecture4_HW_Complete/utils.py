@@ -243,6 +243,9 @@ class Vector2d(Generic[Unit]):
         """
         return self.translation.norm() # type: ignore
 
+    def normalized(self) -> Vector2d[Unit]:
+        return Vector2d[Unit].fromMagnitudeAndDirection(1, self.angle()) # type: ignore
+
     def rotateAround(self, other: Vector2d[Unit], rot: Rotation2d) -> Vector2d[Unit]:
         """
         Rotates this vector around another vector in 2D space.

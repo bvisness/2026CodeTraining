@@ -46,6 +46,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         self.drivetrain = DrivetrainSim(
             robot.drivetrain,
             mass=constants.robotMass,
+            slipFriction=128,
             nt=simFolder.folder("Drivetrain"),
         )
 
@@ -74,6 +75,7 @@ class DrivetrainSim:
         drivetrain: Drivetrain,
         *, mass: wpimath.units.kilograms,
         centerOfMass = Translation2d(),
+        slipFriction: wpimath.units.newtons = 0,
         nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ):
         self.realDrivetrain = drivetrain
@@ -95,9 +97,10 @@ class DrivetrainSim:
 
         self.pose = Pose2d(Translation2d(10, 5), Rotation2d())
         self.mass = mass
+        self.slipFriction = slipFriction
         self.velocity = Vector2d[wpimath.units.meters_per_second]()
         self.angularVelocity: wpimath.units.radians_per_second = 0
-        self.moduleVelocities: list[Vector2d[wpimath.units.meters_per_second]] = [Vector2d(), Vector2d(), Vector2d(), Vector2d()]
+        self.moduleFieldVelocities: list[Vector2d[wpimath.units.meters_per_second]] = [Vector2d(), Vector2d(), Vector2d(), Vector2d()]
 
         self.netForceTopic = nt.getStructTopic("NetForce", Translation2d)
         self.netForceVisualTopic = nt.getStructTopic("NetForceVisual", Translation2d)
@@ -107,39 +110,38 @@ class DrivetrainSim:
         self.moduleVelocitiesVisualTopic = nt.getStructArrayTopic("ModuleVelocitiesVisual", SwerveModuleState)
         self.moduleForcesTopic = nt.getStructArrayTopic("ModuleForces", Translation2d)
         self.moduleForcesVisualTopic = nt.getStructArrayTopic("ModuleForcesVisual", SwerveModuleState)
+        self.moduleDragForcesTopic = nt.getStructArrayTopic("ModuleDragForces", Translation2d)
+        self.moduleDragForcesVisualTopic = nt.getStructArrayTopic("ModuleDragForcesVisual", SwerveModuleState)
 
     def iterate(self, vbus: float, dt: float):
         modulePosesBefore = self.getModulePoses(self.pose)
 
-        for module, moduleSpeed in zip(self.modules, self.moduleVelocities):
-            module.iterate(moduleSpeed, vbus, dt)
+        for module, moduleVelocity in zip(self.modules, self.moduleFieldVelocities):
+            module.iterate(moduleVelocity, vbus, dt)
         moduleStates = self.getModuleStates()
 
         moduleFieldAngles = [self.pose.rotation() + m.angle for m in moduleStates]        
-        moduleForceVectors = [Vector2d.fromMagnitudeAndDirection(m.getDriveForce(), angle) for m, angle in zip(self.modules, moduleFieldAngles)]
-        self.moduleFieldAnglesVisualTopic.set([
-            # TODO: Offset by robot angle
-            SwerveModuleState(1, angle) for angle in moduleFieldAngles
-        ])
-        self.moduleForcesTopic.set([fv.toTranslation() for fv in moduleForceVectors])
-        self.moduleForcesVisualTopic.set([
-            # TODO: Probably needs to be offset by robot angle.
-            SwerveModuleState(fv.norm() / 10, fv.angle())
-            for fv in moduleForceVectors
-        ])
+        moduleDriveForces = [Vector2d.fromMagnitudeAndDirection(m.getDriveForce(), angle) for m, angle in zip(self.modules, moduleFieldAngles)]
+        moduleDragForces: list[Vector2d[wpimath.units.newtons]] = []
+        for angle, velocity in zip(moduleFieldAngles, self.moduleFieldVelocities):
+            direction = Vector2d.fromMagnitudeAndDirection(1, angle)
+            if velocity.norm() > 0.05 and direction.dot(velocity.normalized()) < math.cos(wpimath.units.degreesToRadians(10)):
+                dragForce = self.slipFriction
+            else:
+                dragForce = 0
+            moduleDragForces.append(-Vector2d.fromMagnitudeAndDirection(dragForce, velocity.angle()))
 
         # Compute net force and torque on the robot by applying all four forces
         # at the appropriate offsets. See the following link (sec. 2.7) for more
         # background: https://www.cs.cmu.edu/~baraff/sigcourse/notesd1.pdf
         netForce = Vector2d[wpimath.units.newtons]()
         netTorque: wpimath.units.newton_meters = 0
-        for fv, modPose in zip(moduleForceVectors, modulePosesBefore):
+        for fv, fd, modPose in zip(moduleDriveForces, moduleDragForces, modulePosesBefore):
             modOffsetField = Vector2d.fromTranslation(modPose.translation() - self.pose.translation())
             netForce += fv
+            netForce += fd
             netTorque += modOffsetField.cross(fv)
-        self.netForceTopic.set(netForce.toTranslation())
-        self.netTorqueTopic.set(netTorque)
-        self.netForceVisualTopic.set(self.pose.translation() + (netForce.toTranslation() / 10))
+            netTorque += modOffsetField.cross(fd)
 
         accleration: Vector2d[wpimath.units.meters_per_second_squared] = netForce / self.mass
         self.velocity += accleration * dt
@@ -148,16 +150,36 @@ class DrivetrainSim:
         self.pose = Pose2d(newPosition, self.pose.rotation())
         modulePosesAfter = self.getModulePoses(self.pose)
         
-        self.moduleVelocities = [
+        self.moduleFieldVelocities = [
             Vector2d.fromTranslation(after.translation() - before.translation()) / dt
             for before, after in zip(modulePosesBefore, modulePosesAfter)
         ]
-        self.moduleVelocitiesTopic.set([v.toTranslation() for v in self.moduleVelocities])
+
+        # NetworkTables values
+        self.moduleFieldAnglesVisualTopic.set([
+            # TODO: Offset by robot angle
+            SwerveModuleState(1, angle) for angle in moduleFieldAngles
+        ])
+        self.moduleForcesTopic.set([fv.toTranslation() for fv in moduleDriveForces])
+        self.moduleForcesVisualTopic.set([
+            # TODO: Probably needs to be offset by robot angle.
+            SwerveModuleState(fv.norm() / 10, fv.angle())
+            for fv in moduleDriveForces
+        ])
+        self.moduleDragForcesTopic.set([d.toTranslation() for d in moduleDragForces])
+        self.moduleDragForcesVisualTopic.set([
+            SwerveModuleState(df.norm() / 10, df.angle())
+            for df in moduleDragForces
+        ])
+        self.moduleVelocitiesTopic.set([v.toTranslation() for v in self.moduleFieldVelocities])
         self.moduleVelocitiesVisualTopic.set([
             # TODO: This is probably wrong because it probably needs to be offset by the robot's rotation.
             SwerveModuleState(v.norm(), v.angle())
-            for v in self.moduleVelocities
+            for v in self.moduleFieldVelocities
         ])
+        self.netForceTopic.set(netForce.toTranslation())
+        self.netTorqueTopic.set(netTorque)
+        self.netForceVisualTopic.set(self.pose.translation() + (netForce.toTranslation() / 10))
 
         # # Update the simulated gyro. For reasons unknown, the navX uses
         # # clockwise degrees.
