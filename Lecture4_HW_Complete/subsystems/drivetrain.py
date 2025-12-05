@@ -1,4 +1,5 @@
 import math
+import navx
 from wpimath.geometry import Pose2d, Rotation2d, Translation2d
 from wpimath.kinematics import ChassisSpeeds, SwerveModuleState, SwerveDrive4Kinematics
 import wpimath.units
@@ -14,6 +15,8 @@ class Drivetrain:
         self.frontRightSwerveModule = SwerveModule(28, 22, 0)
         self.backLeftSwerveModule = SwerveModule(26, 24, math.pi)
         self.backRightSwerveModule = SwerveModule(27, 23, math.pi/2)
+
+        self.gyro = navx.AHRS.create_spi()
 
         self.modulePositions = (
             Translation2d(constants.wheelDistanceFromCenter, constants.wheelDistanceFromCenter),
@@ -58,5 +61,4 @@ class Drivetrain:
         ySpeed: wpimath.units.meters_per_second,
         turnSpeed: wpimath.units.radians_per_second,
     ):
-        # TODO: Get heading from navX
-        self.desiredChassisSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(xSpeed, ySpeed, turnSpeed, Rotation2d())
+        self.desiredChassisSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(xSpeed, ySpeed, turnSpeed, self.gyro.getRotation2d())

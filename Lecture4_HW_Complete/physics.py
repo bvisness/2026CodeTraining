@@ -2,6 +2,7 @@ import math
 import random
 import typing
 
+import hal.simulation
 import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
 import rev
@@ -87,13 +88,14 @@ class DrivetrainSim:
         )
         self.modulePositions = drivetrain.modulePositions
         self.kinematics = drivetrain.kinematics
-        # # Per the navX docs, the recommended way to use the navX as a sim
-        # # device is to just use the real device but set the simulator variable
-        # # for Yaw directly.
-        # #
-        # # https://pdocs.kauailabs.com/navx-mxp/software/roborio-libraries/c/
-        # navXDevice = hal.simulation.getSimDeviceHandle(f"navX-Sensor[{drivetrain.gyro.getPort()}]")
-        # self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
+
+        # Per the navX docs, the recommended way to use the navX as a sim
+        # device is to just use the real device but set the simulator variable
+        # for Yaw directly.
+        #
+        # https://pdocs.kauailabs.com/navx-mxp/software/roborio-libraries/c/
+        navXDevice = hal.simulation.getSimDeviceHandle(f"navX-Sensor[{drivetrain.gyro.getPort()}]")
+        self.navXAngleSim = hal.SimDouble(hal.simulation.getSimValueHandle(navXDevice, "Yaw"))
 
         self.pose = Pose2d(Translation2d(10, 5), Rotation2d())
         self.mass = mass
@@ -189,9 +191,9 @@ class DrivetrainSim:
         self.netTorqueTopic.set(netTorque)
         self.netForceVisualTopic.set(self.pose.translation() + (netForce.toTranslation() / 10))
 
-        # # Update the simulated gyro. For reasons unknown, the navX uses
-        # # clockwise degrees.
-        # self.navXAngleSim.set(-self.pose.rotation().degrees())
+        # Update the simulated gyro. For reasons unknown, the navX uses
+        # clockwise degrees.
+        self.navXAngleSim.set(-self.pose.rotation().degrees())
 
     def getModuleStates(self):
         return [m.getState() for m in self.modules]
