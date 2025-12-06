@@ -42,8 +42,10 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
 
         # Physics device setup
         self.robot = robot
-        self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
+        # TODO: Our current calculations are currently returning abject
+        # nonsense. For now we will just bypass current draw simulation.
         # self.battery = DrainingBatterySim(nt=simFolder.folder("Battery"))
+        self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
         self.drivetrain = DrivetrainSim(
             robot.drivetrain,
             mass=constants.robotMass,
@@ -61,10 +63,7 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # self.swerveStatesTopic.set(list(self.drivetrain.get_module_states()))
 
         # Update simulated electrical state
-        # TODO: Our current calculations are currently returning abject
-        # nonsense. For now we will just bypass current draw simulation.
-        # currents = [self.drivetrain.get_current_draw()]
-        currents = []
+        currents = [self.drivetrain.getCurrentDraw()]
         self.battery.iterate(sum(currents), tm_diff)
         RoboRioSim.setVInVoltage(self.battery.outputVoltage())
         RoboRioSim.setVInCurrent(self.battery.outputCurrent())
@@ -75,7 +74,6 @@ class DrivetrainSim:
         self,
         drivetrain: Drivetrain,
         *, mass: wpimath.units.kilograms,
-        centerOfMass = Translation2d(),
         slipFriction: wpimath.units.newtons = 0,
         nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
     ):
@@ -118,7 +116,7 @@ class DrivetrainSim:
         self.moduleDragForcesVisualTopic = nt.getStructArrayTopic("ModuleDragForcesVisual", SwerveModuleState)
 
     def iterate(self, vbus: float, dt: float):
-        modulePosesBefore = self.getModulePoses(self.pose)
+        modulePosesBefore = self.getModuleFieldPoses()
 
         for module, moduleVelocity in zip(self.modules, self.moduleFieldVelocities):
             moduleVelocityRobot = moduleVelocity.rotateBy(-self.pose.rotation())
@@ -160,8 +158,8 @@ class DrivetrainSim:
         newRotation = self.pose.rotation().rotateBy(Rotation2d(self.angularVelocity * dt))
 
         self.pose = Pose2d(newPosition, newRotation)
-        modulePosesAfter = self.getModulePoses(self.pose)
         
+        modulePosesAfter = self.getModuleFieldPoses()
         self.moduleFieldVelocities = [
             Vector2d.fromTranslation(after.translation() - before.translation()) / dt
             for before, after in zip(modulePosesBefore, modulePosesAfter)
@@ -195,17 +193,17 @@ class DrivetrainSim:
         # clockwise degrees.
         self.navXAngleSim.set(-self.pose.rotation().degrees())
 
-    def getModuleStates(self):
-        return [m.getState() for m in self.modules]
-
-    def getModulePoses(self, pose: Pose2d):
-        return [pose.transformBy(Transform2d(t, Rotation2d())) for t in self.modulePositions]
-
     def getPose(self):
         return self.pose
 
     def setPose(self, pose: Pose2d):
         self.pose = pose
+
+    def getModuleStates(self):
+        return [m.getState() for m in self.modules]
+
+    def getModuleFieldPoses(self):
+        return [self.pose.transformBy(Transform2d(t, Rotation2d())) for t in self.modulePositions]
 
     def getCurrentDraw(self) -> wpimath.units.amperes:
         current = sum(s.getCurrentDraw() for s in self.modules)
