@@ -5,8 +5,11 @@ from wpilib import RobotBase
 import constants
 
 
-# ================================
-# Motor configs
+# =============================================================================
+# This file contains configuration objects for our motors. We put them all here
+# because they are big and bulky and more analogous to the constants we have in
+# constants.py.
+# =============================================================================
 
 driveMotorConfig = rev.SparkMaxConfig()
 driveMotorConfig.smartCurrentLimit(40)
@@ -35,6 +38,9 @@ steerMotorConfig.absoluteEncoder.velocityConversionFactor(2 * math.pi / 60)
 # controller works in angles, which wrap around, we enable position wrapping.
 steerMotorConfig.closedLoop.setFeedbackSensor(rev.ClosedLoopConfig.FeedbackSensor.kAbsoluteEncoder)
 if RobotBase.isSimulation():
+    # This is a bit of a hack, but for now the physics simulation for steering
+    # is quite jumpy and doesn't match real life very well, so we just choose
+    # less sensitive constants for the simulation.
     steerMotorConfig.closedLoop.pid(0.4, 0, 0)
 else:
     steerMotorConfig.closedLoop.pid(1, 0, 0)
