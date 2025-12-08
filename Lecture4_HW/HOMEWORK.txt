@@ -1,0 +1,82 @@
+Greetings, students! Your homework is to create a complete field-relative
+swerve drive program. You must do the following:
+
+- Create robot.py and set up the main robot class. It MUST have the following
+  variables defined:
+   - self.drivetrain, set to an instance of the Drivetrain subsystem.
+- Create subsystems/drivetrain.py and set up the Drivetrain subsystem. It MUST
+  have the following variables defined:
+   - self.frontLeftSwerveModule, set to an instance of SwerveModule
+   - self.frontRightSwerveModule, ditto
+   - self.backLeftSwerveModule, ditto
+   - self.backRightSwerveModule, ditto
+   - self.gyro, set to an instance of navx.AHRS
+
+!! CHECKPOINT 1 !!: You should be able to launch the simulator and see no
+errors in the terminal.
+
+- Implement teleoperated controls for the robot. Pushing up, down, left, and
+  right on the left stick should move the robot forward, backward, left, and
+  right relative to the driver. Pushing right and left on the right stick
+  should turn the robot clockwise and counterclockwise. (Remember what we
+  learned in lecture 3.) Use these desired controls to create ChassisSpeeds
+  and publish them to NetworkTables.
+- Make the robot move faster than the default. It should have the following top
+  speeds:
+   - 4 meters per second when moving up, down, left, or right
+   - 2 radians per second when rotating
+
+!! CHECKPOINT 2 !!: You should be able to view your desired ChassisSpeeds in
+the Swerve tab of AdvantageScope, and the controls should match what was
+described above.
+
+- Use kinematics to compute desired states for all four swerve modules. Pass
+  them along to the setDesiredState method of the four SwerveModule objects you
+  created.
+- Call getActualState on the SwerveModule objects to get the actual speed and
+  direction of each module. Publish them to AdvantageScope so you can see them.
+- Choose PID constants in configs.py so that the swerve modules steer toward
+  the desired state.
+
+!! CHECKPOINT 3 !!: You should be able to see your wheels steering correctly in
+the simulation. In fact, you should have a complete and functional swerve drive
+robot!
+
+Copy-pasting from previous assignments and example code is allowed and STRONGLY
+ENCOURAGED!
+
+-------------------------------------------------------------------------------
+
+You are given a few files to start:
+
+- constants.py: A file containing constant values describing physical
+  properties of the robot, e.g. what size the wheels are and where they are
+  positioned.
+- configs.py (INCOMPLETE): A file containing configuration objects for the
+  drive and steering motors.
+- hardware/swervemodule.py: A class which contains common logic for all four
+  swerve modules.
+- ntutil.py: A file which contains utilities for posting data to NetworkTables
+  for viewing in AdvantageScope.
+- utils.py: A file which contains several helpful functions that may be of use
+  to you.
+
+Additionally, the following files MUST NOT be touched, or you will probably
+break the physics simulation that you need in order to test your code:
+
+- physics.py: A file which implements physics simulation for the swerve drive.
+- sim/rotatingobject.py: A class which implements some of the physics
+  simulation for the sim.
+
+-------------------------------------------------------------------------------
+
+!! EXTRA CREDIT !!
+
+If you can't get enough, try implementing some extra functionality:
+
+- Make field-relative controls work for both the red and blue alliance. You can
+  change your alliance in the simulator by clicking Disconnected, then changing
+  the alliance station in the FMS panel, then clicking Disabled or
+  Teleoperated to "reconnect".
+- Make the robot drive in autonomous! Make the robot drive a simple route of
+  your choosing.
