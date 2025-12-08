@@ -7,21 +7,19 @@ import pyfrc.physics.core
 from pyfrc.physics.core import PhysicsInterface
 import rev
 from rev import SparkMax, SparkMaxSim
-from wpilib import DriverStation, RobotBase, RobotController
+from wpilib import RobotController
 from wpilib.simulation import BatterySim, RoboRioSim
 import wpimath
 import wpimath.units
-from wpimath.controller import PIDController
-from wpimath.filter import SlewRateLimiter
 from wpimath.geometry import Pose2d, Rotation2d, Transform2d, Translation2d
-from wpimath.kinematics import ChassisSpeeds, SwerveDrive4Kinematics, SwerveModuleState
+from wpimath.kinematics import ChassisSpeeds, SwerveModuleState
 from wpimath.system.plant import DCMotor
 
 import constants
 from hardware.swervemodule import SwerveModule
 import ntutil
 from robot import MyRobot
-from sim.rotating import RotatingObject, moiForWheel
+from sim.rotatingobject import RotatingObject, moiWheel
 from subsystems.drivetrain import Drivetrain
 import utils
 from utils import Vector2d
@@ -36,7 +34,7 @@ from utils import Vector2d
 class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
     def __init__(self, physics_controller: PhysicsInterface, robot: MyRobot):
         # NetworkTables topics
-        simFolder = ntutil.folder("Sim")
+        simFolder = ntutil.getFolder("Sim")
         self.poseTopic = simFolder.getStructTopic("Pose", Pose2d)
         self.vbusTopic = simFolder.getFloatTopic("VBus")
 
@@ -45,12 +43,12 @@ class PhysicsEngine(pyfrc.physics.core.PhysicsEngine):
         # TODO: Our current calculations are currently returning abject
         # nonsense. For now we will just bypass current draw simulation.
         # self.battery = DrainingBatterySim(nt=simFolder.folder("Battery"))
-        self.battery = NormalBatterySim(nt=simFolder.folder("Battery"))
+        self.battery = NormalBatterySim(nt=simFolder.getFolder("Battery"))
         self.drivetrain = DrivetrainSim(
             robot.drivetrain,
             mass=constants.robotMass,
             slipFriction=128,
-            nt=simFolder.folder("Drivetrain"),
+            nt=simFolder.getFolder("Drivetrain"),
         )
 
     def update_sim(self, now: float, tm_diff: float):
@@ -75,16 +73,15 @@ class DrivetrainSim:
         drivetrain: Drivetrain,
         *, mass: wpimath.units.kilograms,
         slipFriction: wpimath.units.newtons = 0,
-        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        nt: ntutil.Folder = ntutil.DummyFolder(),
     ):
         self.realDrivetrain = drivetrain
         self.modules: tuple[SwerveModuleSim, SwerveModuleSim, SwerveModuleSim, SwerveModuleSim] = (
-            SwerveModuleSim(drivetrain.frontLeftSwerveModule, nt=nt.folder("FrontLeft")),
-            SwerveModuleSim(drivetrain.frontRightSwerveModule, nt=nt.folder("FrontRight")),
-            SwerveModuleSim(drivetrain.backLeftSwerveModule, nt=nt.folder("BackLeft")),
-            SwerveModuleSim(drivetrain.backRightSwerveModule, nt=nt.folder("BackRight")),
+            SwerveModuleSim(drivetrain.frontLeftSwerveModule, nt=nt.getFolder("FrontLeft")),
+            SwerveModuleSim(drivetrain.frontRightSwerveModule, nt=nt.getFolder("FrontRight")),
+            SwerveModuleSim(drivetrain.backLeftSwerveModule, nt=nt.getFolder("BackLeft")),
+            SwerveModuleSim(drivetrain.backRightSwerveModule, nt=nt.getFolder("BackRight")),
         )
-        self.modulePositions = drivetrain.modulePositions
         self.kinematics = drivetrain.kinematics
 
         # Per the navX docs, the recommended way to use the navX as a sim
@@ -97,7 +94,7 @@ class DrivetrainSim:
 
         self.pose = Pose2d(Translation2d(10, 5), Rotation2d())
         self.mass = mass
-        self.moi = moiForWheel(mass, wpimath.units.inchesToMeters(34), 0) # assume the robot is a flat disk...
+        self.moi = moiWheel(mass, wpimath.units.inchesToMeters(34), 0) # assume the robot is a flat disk...
         self.slipFriction = slipFriction
         self.velocity = Vector2d[wpimath.units.meters_per_second]()
         self.angularVelocity: wpimath.units.radians_per_second = 0
@@ -130,7 +127,7 @@ class DrivetrainSim:
             direction = Vector2d.fromMagnitudeAndDirection(1, angle)
             alignmentFactor = utils.clamp(utils.remap(
                 direction.dot(velocity.normalized()),
-                (1, math.cos(wpimath.units.degreesToRadians(20))),
+                (1, math.cos(wpimath.units.degreesToRadians(30))),
                 (0, 1),
             ), 0, 1)
             velocityFactor = utils.remap(velocity.norm(), (0, 0.5), (0, 1))
@@ -203,7 +200,7 @@ class DrivetrainSim:
         return [m.getState() for m in self.modules]
 
     def getModuleFieldPoses(self):
-        return [self.pose.transformBy(Transform2d(t, Rotation2d())) for t in self.modulePositions]
+        return [self.pose.transformBy(Transform2d(t, Rotation2d())) for t in constants.swerveModulePositions]
 
     def getCurrentDraw(self) -> wpimath.units.amperes:
         current = sum(s.getCurrentDraw() for s in self.modules)
@@ -226,27 +223,27 @@ class SwerveModuleSim:
     def __init__(
         self,
         module: SwerveModule,
-        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        *, nt: ntutil.Folder = ntutil.DummyFolder(),
     ):
         self.realModule = module
         self.driveSparkSim = SparkMaxSim2175(
             module.driveMotor,
             DCMotor.NEO(1),
             gearReduction=constants.driveMotorReduction,
-            nt=nt.folder("DriveMotor"),
+            nt=nt.getFolder("DriveMotor"),
         )
         self.steerSparkSim = SparkMaxSim2175(
             module.steerMotor,
             DCMotor.NEO550(1),
             gearReduction=constants.steerMotorReduction,
-            nt=nt.folder("SteerMotor"),
+            nt=nt.getFolder("SteerMotor"),
         )
 
         self.steerPhysics = RotatingObject(
             # Pretty random estimates for the mass of the rotating part and the
             # "diameters" of this definitely not wheel-shaped thing, but it
             # shouldn't really matter.
-            momentOfInertia=moiForWheel(
+            momentOfInertia=moiWheel(
                 mass=2,
                 outerDiameter=wpimath.units.inchesToMeters(5),
                 innerDiameter=wpimath.units.inchesToMeters(0.5),
@@ -262,7 +259,7 @@ class SwerveModuleSim:
             # Or we could just throw in a number that feels like it works.
             friction=6,
 
-            nt=nt.folder("SteerPhysics"),
+            nt=nt.getFolder("SteerPhysics"),
         )
 
         # Randomize the starting rotation to simulate what we have when we take
@@ -282,7 +279,6 @@ class SwerveModuleSim:
         self.steerSparkSim.iterate(self.steerPhysics.getVelocity(), vbus, dt)
 
         # Update steer physics for next tick
-        # TODO: Seems like the torque calculation here is going absolutely bonkers.
         self.steerPhysics.iterate(self.steerSparkSim.getMotorTorque(), dt)
 
     def getState(self) -> SwerveModuleState:
@@ -296,7 +292,7 @@ class SwerveModuleSim:
 
 
 class BatterySim2175():
-    def __init__(self, *, nt: ntutil._NTFolder = ntutil._DummyNTFolder()):
+    def __init__(self, *, nt: ntutil.Folder = ntutil.DummyFolder()):
         self.currentDraw: wpimath.units.amperes = 0
         self.voltageTopic = nt.getFloatTopic("Voltage")
         self.currentTopic = nt.getFloatTopic("Current")
@@ -317,7 +313,7 @@ class NormalBatterySim(BatterySim2175):
     def __init__(
         self,
         volts: wpimath.units.volts = 12,
-        *, nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        *, nt: ntutil.Folder = ntutil.DummyFolder(),
     ):
         super().__init__(nt=nt)
         self.volts = volts
@@ -337,7 +333,7 @@ class DrainingBatterySim(BatterySim2175):
     def __init__(self,
         *,
         usable_amp_hours: wpimath.units.ampere_hours | None = None,
-        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        nt: ntutil.Folder = ntutil.DummyFolder(),
     ):
         super().__init__(nt=nt)
         self.charge: wpimath.units.ampere_hours = DrainingBatterySim.FULL_BATTERY_AMP_HOURS if usable_amp_hours is None else usable_amp_hours
@@ -371,7 +367,7 @@ class SparkMaxSim2175(SparkMaxSim):
         sparkMax: SparkMax,
         motor: DCMotor,
         *, gearReduction: float = 1,
-        nt: ntutil._NTFolder = ntutil._DummyNTFolder(),
+        nt: ntutil.Folder = ntutil.DummyFolder(),
     ) -> None:
         super().__init__(sparkMax, motor)
         self.realSpark = sparkMax

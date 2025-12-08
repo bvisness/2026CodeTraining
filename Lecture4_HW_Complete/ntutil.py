@@ -5,40 +5,59 @@ import wpilib
 import wpiutil.log
 
 
-# =============================================================================
-# This file contains utilities for sending values to NetworkTables for display
-# in AdvantageScope and other tools. You should NOT edit this for the homework.
-# =============================================================================
-
 nt = ntcore.NetworkTableInstance.getDefault()
 
 T = TypeVar("T")
 
+class Topic(Generic[T]):
+    """
+    A single entry in NetworkTables that can be read from or written to.
+    """
 
-class _NTTopic(Generic[T]):
     def __init__(self, topic, default: T):
+        """
+        Do not create instances of Topic() directly. Instead, call the helper
+        functions like `getIntegerTopic` and `getStructTopic`.
+        """
         self.publisher = topic.publish()
         self.subscriber = topic.subscribe(default)
 
     def get(self, defaultValue: T | None = None) -> T:
+        """
+        Gets the most recent value published to the topic, or `defaultValue` if
+        no value has been published.
+        """
         if defaultValue is None:
             return self.subscriber.get()
         else:
             return self.subscriber.get(defaultValue)
 
     def set(self, value: T) -> None:
+        """
+        Sets the topic's value, publishing it to NetworkTables.
+        """
         self.publisher.set(value)
 
     def setDefault(self, value: T) -> None:
+        """
+        Set's the default value of the topic, to be returned if no value has
+        been published.
+        """
         self.publisher.setDefault(value)
 
 
-class _DummyNTTopic(_NTTopic[T], Generic[T]):
+class DummyTopic(Topic[T], Generic[T]):
+    """
+    A phony topic that publishes and receives nothing. Useful as a default if
+    you want NetworkTables logging to be optional.
+    """
+
     def __init__(self, default: T | None = None):
         pass
 
     def get(self, defaultValue: T | None = None) -> T:
-        # Returns None if no defaultValue is provided, but you know, who cares
+        # Returns None if no defaultValue is provided, but you know, who cares.
+        # This is under-specified in the underlying library too.
         return defaultValue  # type: ignore
 
     def set(self, value: T) -> None:
@@ -48,130 +67,147 @@ class _DummyNTTopic(_NTTopic[T], Generic[T]):
         pass
 
 
-class _NTFolder:
+class Folder:
+    """
+    An object that can be used to create Topics with a specific path. Useful
+    when you want a group of topics for a specific object.
+
+    ```
+    nt = ntutil.Folder("MySubsystem")
+    armAngleTopic = nt.getFloatTopic("ArmAngle") # Creates MySubsystem/ArmAngle
+    clawOpenTopic = nt.getBooleanTopic("ClawOpen") # Creates MySubsystem/ClawOpen
+    ```
+    
+    You can also create subfolders by calling `getFolder` again.
+    """
     def __init__(self, prefix: str):
+        """
+        Creates a folder with a given path prefix. Do not call this directly;
+        instead, call `getFolder`.
+        """
         self.prefix = prefix
 
-    def folder(self, name: str):
+    def getFolder(self, name: str):
         """
         Creates a subfolder of the current folder.
         """
-        return _NTFolder(self.prefix + "/" + name)
+        return Folder(self.prefix + "/" + name)
 
-    # Plain NetworkTables topics
+    def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> Topic[List[bool]]:
+        return Topic(nt.getBooleanArrayTopic(self.prefix + "/" + name), defaultValue)
 
-    def topicName(self, name: str):
-        return self.prefix + "/" + name
+    def getBooleanTopic(self, name: str, defaultValue: bool = False) -> Topic[bool]:
+        return Topic(nt.getBooleanTopic(self.prefix + "/" + name), defaultValue)
 
-    def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
-        return _NTTopic(nt.getBooleanArrayTopic(self.prefix + "/" + name), defaultValue)
+    def getFloatArrayTopic(self, name: str, defaultValue: List[float] = []) -> Topic[List[float]]:
+        return Topic(nt.getFloatArrayTopic(self.prefix + "/" + name), defaultValue)
 
-    def getBooleanTopic(self, name: str, defaultValue: bool = False) -> _NTTopic[bool]:
-        return _NTTopic(nt.getBooleanTopic(self.prefix + "/" + name), defaultValue)
+    def getFloatTopic(self, name: str, defaultValue: float = 0) -> Topic[float]:
+        return Topic(nt.getFloatTopic(self.prefix + "/" + name), defaultValue)
 
-    def getFloatArrayTopic(self, name: str, defaultValue: List[float] = []) -> _NTTopic[List[float]]:
-        return _NTTopic(nt.getFloatArrayTopic(self.prefix + "/" + name), defaultValue)
+    def getIntegerArrayTopic(self, name: str, defaultValue: List[int] = []) -> Topic[List[int]]:
+        return Topic(nt.getIntegerArrayTopic(self.prefix + "/" + name), defaultValue)
 
-    def getFloatTopic(self, name: str, defaultValue: float = 0) -> _NTTopic[float]:
-        return _NTTopic(nt.getFloatTopic(self.prefix + "/" + name), defaultValue)
+    def getIntegerTopic(self, name: str, defaultValue: int = 0) -> Topic[int]:
+        return Topic(nt.getIntegerTopic(self.prefix + "/" + name), defaultValue)
 
-    def getIntegerArrayTopic(self, name: str, defaultValue: List[int] = []) -> _NTTopic[List[int]]:
-        return _NTTopic(nt.getIntegerArrayTopic(self.prefix + "/" + name), defaultValue)
+    def getStringArrayTopic(self, name: str, defaultValue: List[str] = []) -> Topic[List[str]]:
+        return Topic(nt.getStringArrayTopic(self.prefix + "/" + name), defaultValue)
 
-    def getIntegerTopic(self, name: str, defaultValue: int = 0) -> _NTTopic[int]:
-        return _NTTopic(nt.getIntegerTopic(self.prefix + "/" + name), defaultValue)
+    def getStringTopic(self, name: str, defaultValue: str = "") -> Topic[str]:
+        return Topic(nt.getStringTopic(self.prefix + "/" + name), defaultValue)
 
-    def getStringArrayTopic(self, name: str, defaultValue: List[str] = []) -> _NTTopic[List[str]]:
-        return _NTTopic(nt.getStringArrayTopic(self.prefix + "/" + name), defaultValue)
+    def getStructArrayTopic(self, name: str, type: Type[T], defaultValue: List[T] = []) -> Topic[List[T]]:
+        return Topic(nt.getStructArrayTopic(self.prefix + "/" + name, type), defaultValue)
 
-    def getStringTopic(self, name: str, defaultValue: str = "") -> _NTTopic[str]:
-        return _NTTopic(nt.getStringTopic(self.prefix + "/" + name), defaultValue)
-
-    def getStructArrayTopic(self, name: str, type: Type[T], defaultValue: List[T] = []) -> _NTTopic[List[T]]:
-        return _NTTopic(nt.getStructArrayTopic(self.prefix + "/" + name, type), defaultValue)
-
-    def getStructTopic(self, name: str, type: Type[T], defaultValue: T | None = None) -> _NTTopic[T]:
+    def getStructTopic(self, name: str, type: Type[T], defaultValue: T | None = None) -> Topic[T]:
         if defaultValue is None:
             defaultValue = type()
-        return _NTTopic(nt.getStructTopic(self.prefix + "/" + name, type), defaultValue)
+        return Topic(nt.getStructTopic(self.prefix + "/" + name, type), defaultValue)
 
 
-class _DummyNTFolder(_NTFolder):
+class DummyFolder(Folder):
+    """
+    A phony folder that creates phony topics. Useful as a default if you want
+    NetworkTables logging to be optional.
+    """
+
     def __init__(self, prefix: str = "DUMMY"):
         self.prefix = prefix
 
-    def folder(self, name: str):
-        return _DummyNTFolder(self.prefix + "/" + name)
+    def getFolder(self, name: str):
+        return DummyFolder(self.prefix + "/" + name)
 
-    def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> _NTTopic[List[bool]]:
-        return _DummyNTTopic(defaultValue)
+    def getBooleanArrayTopic(self, name: str, defaultValue: List[bool] = []) -> Topic[List[bool]]:
+        return DummyTopic(defaultValue)
 
-    def getBooleanTopic(self, name: str, defaultValue: bool = False) -> _NTTopic[bool]:
-        return _DummyNTTopic(defaultValue)
+    def getBooleanTopic(self, name: str, defaultValue: bool = False) -> Topic[bool]:
+        return DummyTopic(defaultValue)
 
-    def getFloatArrayTopic(self, name: str, defaultValue: List[float] = []) -> _NTTopic[List[float]]:
-        return _DummyNTTopic(defaultValue)
+    def getFloatArrayTopic(self, name: str, defaultValue: List[float] = []) -> Topic[List[float]]:
+        return DummyTopic(defaultValue)
     
-    def getFloatTopic(self, name: str, defaultValue: float = 0) -> _NTTopic[float]:
-        return _DummyNTTopic(defaultValue)
+    def getFloatTopic(self, name: str, defaultValue: float = 0) -> Topic[float]:
+        return DummyTopic(defaultValue)
     
-    def getIntegerArrayTopic(self, name: str, defaultValue: List[int] = []) -> _NTTopic[List[int]]:
-        return _DummyNTTopic(defaultValue)
+    def getIntegerArrayTopic(self, name: str, defaultValue: List[int] = []) -> Topic[List[int]]:
+        return DummyTopic(defaultValue)
 
-    def getIntegerTopic(self, name: str, defaultValue: int = 0) -> _NTTopic[int]:
-        return _DummyNTTopic(defaultValue)
+    def getIntegerTopic(self, name: str, defaultValue: int = 0) -> Topic[int]:
+        return DummyTopic(defaultValue)
 
-    def getStringArrayTopic(self, name: str, defaultValue: List[str] = []) -> _NTTopic[List[str]]:
-        return _DummyNTTopic(defaultValue)
+    def getStringArrayTopic(self, name: str, defaultValue: List[str] = []) -> Topic[List[str]]:
+        return DummyTopic(defaultValue)
 
-    def getStringTopic(self, name: str, defaultValue: str = "") -> _NTTopic[str]:
-        return _DummyNTTopic(defaultValue)
+    def getStringTopic(self, name: str, defaultValue: str = "") -> Topic[str]:
+        return DummyTopic(defaultValue)
 
-    def getStructArrayTopic(self, name: str, type: Type[T], defaultValue: List[T] = []) -> _NTTopic[List[T]]:
-        return _DummyNTTopic(defaultValue)
+    def getStructArrayTopic(self, name: str, type: Type[T], defaultValue: List[T] = []) -> Topic[List[T]]:
+        return DummyTopic(defaultValue)
 
-    def getStructTopic(self, name: str, type: Type[T], defaultValue: T | None = None) -> _NTTopic[T]:
+    def getStructTopic(self, name: str, type: Type[T], defaultValue: T | None = None) -> Topic[T]:
         if defaultValue is None:
             defaultValue = type()
-        return _DummyNTTopic(defaultValue)
+        return DummyTopic(defaultValue)
 
 
-_globalFolder = _NTFolder("")
+_globalFolder = Folder("")
 
-def folder(name: str) -> _NTFolder:
-    return _NTFolder("/" + name)
+def getFolder(name: str) -> Folder:
+    return Folder("/" + name)
 
 def getBooleanArrayTopic(name: str, defaultValue: List[bool] = []):
     return _globalFolder.getBooleanArrayTopic(name, defaultValue)
 
-def getBooleanTopic(name: str, defaultValue: bool = False) -> _NTTopic[bool]:
+def getBooleanTopic(name: str, defaultValue: bool = False) -> Topic[bool]:
     return _globalFolder.getBooleanTopic(name, defaultValue)
 
-def getFloatArrayTopic(name: str, defaultValue: List[float] = []) -> _NTTopic[List[float]]:
+def getFloatArrayTopic(name: str, defaultValue: List[float] = []) -> Topic[List[float]]:
     return _globalFolder.getFloatArrayTopic(name, defaultValue)
 
-def getFloatTopic(name: str, defaultValue: float = 0) -> _NTTopic[float]:
+def getFloatTopic(name: str, defaultValue: float = 0) -> Topic[float]:
     return _globalFolder.getFloatTopic(name, defaultValue)
 
-def getIntegerArrayTopic(name: str, defaultValue: List[int] = []) -> _NTTopic[List[int]]:
+def getIntegerArrayTopic(name: str, defaultValue: List[int] = []) -> Topic[List[int]]:
     return _globalFolder.getIntegerArrayTopic(name, defaultValue)
 
-def getIntegerTopic(name: str, defaultValue: int = 0) -> _NTTopic[int]:
+def getIntegerTopic(name: str, defaultValue: int = 0) -> Topic[int]:
     return _globalFolder.getIntegerTopic(name, defaultValue)
 
-def getStringArrayTopic(name: str, defaultValue: List[str] = []) -> _NTTopic[List[str]]:
+def getStringArrayTopic(name: str, defaultValue: List[str] = []) -> Topic[List[str]]:
     return _globalFolder.getStringArrayTopic(name, defaultValue)
 
-def getStringTopic(name: str, defaultValue: str = "") -> _NTTopic[str]:
+def getStringTopic(name: str, defaultValue: str = "") -> Topic[str]:
     return _globalFolder.getStringTopic(name, defaultValue)
 
-def getStructArrayTopic(name: str, type: Type[T], defaultValue: List[T] = []) -> _NTTopic[List[T]]:
+def getStructArrayTopic(name: str, type: Type[T], defaultValue: List[T] = []) -> Topic[List[T]]:
     return _globalFolder.getStructArrayTopic(name, type, defaultValue)
 
-def getStructTopic(name: str, type: Type[T], defaultValue: T | None = None) -> _NTTopic[T]:
+def getStructTopic(name: str, type: Type[T], defaultValue: T | None = None) -> Topic[T]:
     return _globalFolder.getStructTopic(name, type, defaultValue)
 
-# Log entries
+
+# WPILib logging utilities
 
 def log(msg: Any):
     """
@@ -180,7 +216,7 @@ def log(msg: Any):
     """
     wpilib.DataLogManager.log(f"{msg}")
 
-originalAlertText: Dict[wpilib.Alert, str] = {}
+_originalAlertText: Dict[wpilib.Alert, str] = {}
 
 def logAlert(alert: wpilib.Alert, msg: Any):
     """
@@ -190,12 +226,12 @@ def logAlert(alert: wpilib.Alert, msg: Any):
 
     To avoid spam, this method will only log when the message changes.
     """
-    global originalAlertText
+    global _originalAlertText
     
-    if alert not in originalAlertText:
-        originalAlertText[alert] = alert.getText()
+    if alert not in _originalAlertText:
+        _originalAlertText[alert] = alert.getText()
     
-    fullMsg = f"{originalAlertText[alert]}: {msg}"
+    fullMsg = f"{_originalAlertText[alert]}: {msg}"
     if alert.getText() != fullMsg:
         log(fullMsg)
         alert.setText(fullMsg)

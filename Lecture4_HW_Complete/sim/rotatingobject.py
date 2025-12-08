@@ -15,8 +15,18 @@ class RotatingObject:
         *, momentOfInertia: wpimath.units.kilogram_square_meters,
         viscousDragCoefficient = 0.001, # in Nm/(rad/s) (Newton-meters per (radian per second))
         friction: wpimath.units.newton_meters = 0.01,
-        nt: ntutil._NTFolder = ntutil._DummyNTFolder()
+        nt: ntutil.Folder = ntutil.DummyFolder()
     ):
+        """
+        :param momentOfInertia: The object's moment of inertia. This can be
+               calculated using the `moi*` functions found in this file.
+        :param viscousDragCoefficient: Coefficient of friction that scales with
+               velocity, like air drag. The unit is Nm/(rad/s) (Newton-meters
+               per (radian per second)).
+        :param friction: A constant torque opposing motion, simulating
+               friction. The unit is Nm (Newton-meters).
+        :param nt: A NetworkTables folder to use for logging information.
+        """
         self.moi = momentOfInertia
         self.viscousDrag = viscousDragCoefficient
         self.friction = friction
@@ -43,11 +53,11 @@ class RotatingObject:
         # this happens, we just set the velocity to zero. If there is still a
         # torque applied, it will take effect one tick late.
         angularAcceleration = totalTorque / self.moi # rad/(s^2)
-        dVelocity = angularAcceleration * dt
-        if self.velocity != 0 and utils.sign(self.velocity + dVelocity) != utils.sign(self.velocity):
+        newVelocity = self.velocity + (angularAcceleration * dt)
+        if self.velocity != 0 and utils.sign(newVelocity) != utils.sign(self.velocity):
             self.velocity = 0
         else:
-            self.velocity += dVelocity
+            self.velocity = newVelocity
 
         self.inputTorqueTopic.set(inputTorque)
         self.viscousTorqueTopic.set(viscousDragTorque)
@@ -59,7 +69,7 @@ class RotatingObject:
         return self.velocity
 
 
-def moiForWheel(
+def moiWheel(
     mass: wpimath.units.kilograms,
     outerDiameter: wpimath.units.meters,
     innerDiameter: wpimath.units.meters,
@@ -72,7 +82,7 @@ def moiForWheel(
     return 0.5 * mass * (r2*r2 + r1*r1)
 
 
-def moiForArm(
+def moiArm(
     mass: wpimath.units.kilograms,
     centerOfMassRadius: wpimath.units.meters,
 ) -> wpimath.units.kilogram_square_meters:

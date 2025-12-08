@@ -1,6 +1,5 @@
 import math
 import navx
-from wpimath.geometry import Pose2d, Rotation2d, Translation2d
 from wpimath.kinematics import ChassisSpeeds, SwerveModuleState, SwerveDrive4Kinematics
 import wpimath.units
 
@@ -10,29 +9,39 @@ from hardware.swervemodule import SwerveModule
 
 
 class Drivetrain:
-    def __init__(self):
-        self.frontLeftSwerveModule = SwerveModule(25, 21, 3 * math.pi/2)
-        self.frontRightSwerveModule = SwerveModule(28, 22, 0)
-        self.backLeftSwerveModule = SwerveModule(26, 24, math.pi)
-        self.backRightSwerveModule = SwerveModule(27, 23, math.pi/2)
+    """
+    The Drivetrain subsystem contains logic related to driving the robot around
+    the field.
+    """
 
+    def __init__(self):
+        # Hardware
+        self.frontLeftSwerveModule = SwerveModule(25, 21, -3 * math.pi/2)
+        self.frontRightSwerveModule = SwerveModule(28, 22, 0)
+        self.backLeftSwerveModule = SwerveModule(26, 24, -math.pi)
+        self.backRightSwerveModule = SwerveModule(27, 23, -math.pi/2)
         self.gyro = navx.AHRS.create_spi()
 
-        self.modulePositions = (
-            Translation2d(constants.wheelDistanceFromCenter, constants.wheelDistanceFromCenter),
-            Translation2d(constants.wheelDistanceFromCenter, -constants.wheelDistanceFromCenter),
-            Translation2d(-constants.wheelDistanceFromCenter, constants.wheelDistanceFromCenter),
-            Translation2d(-constants.wheelDistanceFromCenter, -constants.wheelDistanceFromCenter),
+        # Swerve kinematics
+        self.kinematics = SwerveDrive4Kinematics(
+            constants.swerveModulePositions[0],
+            constants.swerveModulePositions[1],
+            constants.swerveModulePositions[2],
+            constants.swerveModulePositions[3],
         )
-        self.kinematics = SwerveDrive4Kinematics(*self.modulePositions)
         self.desiredChassisSpeeds = ChassisSpeeds()
 
-        self.nt = ntutil.folder("Drivetrain")
-        self.desiredChassisSpeedsTopic = self.nt.getStructTopic("DesiredChassisSpeeds", ChassisSpeeds)
-        self.desiredStatesTopic = self.nt.getStructArrayTopic("DesiredSwerveStates", SwerveModuleState)
-        self.actualStatesTopic = self.nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
+        # NetworkTables topics
+        nt = ntutil.getFolder("Drivetrain")
+        self.desiredChassisSpeedsTopic = nt.getStructTopic("DesiredChassisSpeeds", ChassisSpeeds)
+        self.desiredStatesTopic = nt.getStructArrayTopic("DesiredSwerveStates", SwerveModuleState)
+        self.actualStatesTopic = nt.getStructArrayTopic("ActualSwerveStates", SwerveModuleState)
 
     def periodic(self):
+        """
+        Runs periodic logic specific to this subsystem. Should be called from
+        robotPeriodic().
+        """
         # Compute desired swerve module states and apply to swerve modules
         frontLeft, frontRight, backLeft, backRight = self.kinematics.toSwerveModuleStates(self.desiredChassisSpeeds)
         self.frontLeftSwerveModule.setDesiredState(frontLeft)
@@ -40,14 +49,9 @@ class Drivetrain:
         self.backLeftSwerveModule.setDesiredState(backLeft)
         self.backRightSwerveModule.setDesiredState(backRight)
 
-        # Report actual/desired swerve info
+        # Update NetworkTables topic
         self.desiredChassisSpeedsTopic.set(self.desiredChassisSpeeds)
-        self.desiredStatesTopic.set([
-            frontLeft,
-            frontRight,
-            backLeft,
-            backRight,
-        ])
+        self.desiredStatesTopic.set([frontLeft, frontRight, backLeft, backRight])
         self.actualStatesTopic.set([
             self.frontLeftSwerveModule.getActualState(),
             self.frontRightSwerveModule.getActualState(),
@@ -61,4 +65,13 @@ class Drivetrain:
         ySpeed: wpimath.units.meters_per_second,
         turnSpeed: wpimath.units.radians_per_second,
     ):
-        self.desiredChassisSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(xSpeed, ySpeed, turnSpeed, self.gyro.getRotation2d())
+        """
+        Tells the drivetrain subsystem to move the robot at the desired speeds.
+        All values are in field coordinates, not robot coordinates.
+        """
+        self.desiredChassisSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(
+            xSpeed,
+            ySpeed,
+            turnSpeed,
+            self.gyro.getRotation2d(),
+        )

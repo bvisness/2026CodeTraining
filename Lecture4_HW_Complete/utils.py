@@ -1,5 +1,4 @@
 from __future__ import annotations 
-import math
 from typing import Generic, SupportsInt, TypeVar
 import typing
 from wpimath.geometry import Rotation2d, Translation2d
@@ -298,9 +297,6 @@ class Vector2d(Generic[Unit]):
         """
         Calculates the dot product of two Vector2ds.
 
-        The resulting unit will be the product of the two input units. For
-        example, dotting two vectors in meters will produce meters squared.
-
         :return: The dot product of the two vectors.
         """
         return (self.x * other.x) + (self.y * other.y)
@@ -309,8 +305,8 @@ class Vector2d(Generic[Unit]):
         """
         Calculates the pseudo-cross-product of two Vector2ds. This operation is
         typically defined only in three dimensions, but by interpreting the
-        vectors as 3D with z = 0, the (a.x * b.y) - (a.y * b.x) quantity is the
-        natural result.
+        vectors as 3D with z = 0, the `(a.x * b.y) - (a.y * b.x)` quantity is
+        the natural result.
 
         The resulting unit will be the product of the two input units. For
         example, crossing a vector in Newtons with a vector in meters will

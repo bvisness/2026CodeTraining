@@ -1,22 +1,41 @@
 import rev
 from wpimath.geometry import Rotation2d
 from wpimath.kinematics import SwerveModuleState, SwerveModulePosition
+import wpimath.units
 
 import configs
 
 
 class SwerveModule:
-    def __init__(self, driveMotorId: int, steerMotorId: int, angleOffset: float):
+    """
+    The SwerveModule class contains common logic for controlling a swerve
+    module. While we could control all eight motors directly from the
+    Drivetrain subsystem, this would be repetitive and error-prone.
+
+    Each swerve module has a drive motor and a steer motor, as well as an
+    angleOffset which will be added to the raw value from the absolute encoder.
+    This is to compensate for the fact that each swerve module is physically
+    rotated differently on the robot, yet are all calibrated the same way.
+    """
+    
+    def __init__(self, driveMotorId: int, steerMotorId: int, angleOffset: wpimath.units.radians):
+        """
+        :param driveMotorId: The ID of the SPARK MAX for the drive motor.
+        :param steerMotorId: The ID of the SPARK MAX for the steering motor.
+        :param angleOffset: A value, in radians, to be added to the absolute
+               encoder value. This should be chosen such that the encoder +
+               `angleOffset` reads zero when the wheel is pointing straight
+               forward (zero rotation in robot coordinates).
+        """
         self.driveMotor = rev.SparkMax(driveMotorId, rev.SparkLowLevel.MotorType.kBrushless)
         self.steerMotor = rev.SparkMax(steerMotorId, rev.SparkLowLevel.MotorType.kBrushless)
-        self.angleOffset: float = angleOffset
+        self.angleOffset = angleOffset
 
         self.driveMotor.configure(configs.driveMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
         self.steerMotor.configure(configs.steerMotorConfig, rev.SparkMax.ResetMode.kResetSafeParameters, rev.SparkMax.PersistMode.kPersistParameters)
 
         self.driveEncoder = self.driveMotor.getEncoder()
-        self.steerRelativeEncoder = self.steerMotor.getEncoder()
-        self.steerAbsoluteEncoder = self.steerMotor.getAbsoluteEncoder()
+        self.steerEncoder = self.steerMotor.getAbsoluteEncoder()
 
         self.drivePidController = self.driveMotor.getClosedLoopController()
         self.steerPidController = self.steerMotor.getClosedLoopController()
@@ -28,7 +47,7 @@ class SwerveModule:
         provided should NOT be modified to account for angle offsets. (In other
         words, pass the raw SwerveModuleState straight out of kinematics.)
         """
-        correctedAngle = state.angle + Rotation2d(self.angleOffset)
+        correctedAngle = state.angle - Rotation2d(self.angleOffset)
         # In real robot projects, we might do other work here to improve swerve
         # behavior, e.g. driving wheels more slowly when they are still pointing in
         # the wrong direction.
@@ -37,20 +56,18 @@ class SwerveModule:
 
     def getActualState(self) -> SwerveModuleState:
         """
-        Gets the actual state of the swerve module (angle/speed), as reported
-        by the NEO encoders.
+        Gets the actual state of the swerve module (angle/speed).
         """
         return SwerveModuleState(
             self.driveEncoder.getVelocity(),
-            Rotation2d(self.steerAbsoluteEncoder.getPosition() - self.angleOffset)
+            Rotation2d(self.steerEncoder.getPosition() + self.angleOffset)
         )
 
     def getActualPosition(self) -> SwerveModulePosition:
         """
-        Gets the actual position of the swerve module (drive/steer positions),
-        as reported by the NEO encoders.
+        Gets the actual position of the swerve module (drive/steer positions).
         """
         return SwerveModulePosition(
             self.driveEncoder.getPosition(),
-            Rotation2d(self.steerAbsoluteEncoder.getPosition() - self.angleOffset)
+            Rotation2d(self.steerEncoder.getPosition() + self.angleOffset)
         )

@@ -1,5 +1,4 @@
 import wpilib
-import wpimath
 
 from subsystems.drivetrain import Drivetrain
 
@@ -13,7 +12,7 @@ class MyRobot(wpilib.TimedRobot):
         self.drivetrain.periodic()
 
     def teleopPeriodic(self):
-        xSpeed = wpimath.applyDeadband(-self.gamepad.getRawAxis(1), 0.1) * 4.5
-        ySpeed = wpimath.applyDeadband(-self.gamepad.getRawAxis(0), 0.1) * 4.5
-        turnSpeed = wpimath.applyDeadband(-self.gamepad.getRawAxis(4), 0.1) * 2 * 3.14159
+        xSpeed = -self.gamepad.getRawAxis(1) * 4
+        ySpeed = -self.gamepad.getRawAxis(0) * 4
+        turnSpeed = -self.gamepad.getRawAxis(4) * 2
         self.drivetrain.drive(xSpeed, ySpeed, turnSpeed)
